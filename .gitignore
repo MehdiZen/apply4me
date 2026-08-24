@@ -1,0 +1,11 @@
+# Dépendances
+node_modules/
+
+# Build
+dist/
+web-ext-artifacts/
+
+# Divers
+*.log
+.DS_Store
+Thumbs.db

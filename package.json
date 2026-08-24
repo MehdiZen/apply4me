@@ -1,0 +1,29 @@
+{
+  "name": "apply4me",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "build:chrome": "TARGET_BROWSER=chrome vite build",
+    "dev": "vite",
+    "dev:firefox": "web-ext run --source-dir dist/ --target firefox-desktop"
+  },
+  "dependencies": {
+    "@phosphor-icons/react": "^2.1.7",
+    "jspdf": "^2.5.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/chrome": "^0.0.279",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.5.3",
+    "vite": "^5.3.4",
+    "vite-plugin-web-extension": "^4.5.1",
+    "web-ext": "^8.3.0"
+  }
+}
