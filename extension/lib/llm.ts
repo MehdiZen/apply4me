@@ -70,8 +70,21 @@ function field(label: string, value?: string): string {
 
 export async function generateCoverLetter(
   jobOffer: string,
-  profile: UserProfile
+  profile: UserProfile,
+  companyNote?: string
 ): Promise<string> {
+  const note = (companyNote ?? '').trim();
+
+  // Raison personnelle fournie par l'utilisateur : le seul élément que le modèle
+  // ne peut pas déduire de l'offre. Elle prend le pas sur le §3 générique.
+  const noteBlock = note
+    ? `\nCE QUI RELIE PERSONNELLEMENT LE CANDIDAT À CETTE ENTREPRISE (écrit par lui, à intégrer avec naturel au paragraphe 3) :
+"""
+${note}
+"""
+Reformule-le dans le fil de la lettre sans le citer mot pour mot, et sans RIEN inventer autour : n'ajoute aucun détail, aucune anecdote, aucun fait qui ne figure pas ci-dessus.\n`
+    : '';
+
   const prompt = `Tu écris la lettre de motivation À LA PLACE du candidat, comme un nègre littéraire qui imite sa voix. Le résultat doit donner l'impression d'avoir été écrit par lui — pas par une IA, pas par un modèle de lettre.
 
 OFFRE D'EMPLOI :
@@ -83,7 +96,7 @@ ${field('Poste visé', profile.targetRole)}${field('CV', profile.cvText)}${field
 """
 ${(profile.writingSample || '').trim() || '(non fourni — adopte un ton naturel, direct, sans sur-formalité)'}
 """
-
+${noteBlock}
 OBJECTIF : une lettre de MOTIVATION. Elle doit montrer pourquoi CE candidat veut CE poste dans CETTE entreprise — pas réciter son CV ni empiler ses compétences. Une lettre qui pourrait être envoyée telle quelle à un concurrent est ratée.
 
 ANGLE DIRECTEUR — renverse subtilement la perspective. Pars du BESOIN de l'entreprise tel qu'exprimé dans l'offre, et montre en quoi le candidat est la réponse à ce besoin. Le lecteur doit se dire « cette personne a compris notre problème et sait le résoudre », jamais « voici mon CV ». On SUGGÈRE la valeur par les faits, on ne la proclame pas : INTERDIT « j'ai exactement le profil », « vous avez besoin de moi », « je suis le candidat idéal », « je corresponds parfaitement ». La confiance vient des preuves, pas des affirmations. Reste humble : aligner un besoin réel et une réussite réelle suffit à faire passer le message.
@@ -91,7 +104,7 @@ ANGLE DIRECTEUR — renverse subtilement la perspective. Pars du BESOIN de l'ent
 PLAN — 4 paragraphes courts, 230 à 300 mots :
 1. Accroche : nomme un besoin ou un enjeu RÉEL de l'offre (sa mission, une phrase précise du poste) et amorce, sans arrogance, pourquoi tu t'y connectes. Prouve que tu as lu CETTE offre.
 2. UNE seule preuve, la plus pertinente : un projet ou une réussite précise, développée, qui répond DIRECTEMENT à ce besoin. Fais le pont implicite « vous cherchez X → j'ai déjà fait X ». Surtout pas un inventaire de technologies.
-3. Pourquoi eux : repère UN élément concret et spécifique que l'entreprise dit d'elle-même dans l'offre (un programme, une façon de travailler, une valeur affichée, un détail du poste — JAMAIS un mot creux type "innovation", "excellence", "leader") et croise-le avec une motivation réelle du candidat. INTERDIT de paraphraser ou de renvoyer les mots-clés de l'offre ("vous parlez de X, ça m'attire"). C'est l'intersection [spécificité réelle de CETTE entreprise] × [ce qui fait vraiment vibrer le candidat] qui rend ce paragraphe non interchangeable.
+3. Pourquoi eux : ${note ? 'appuie-toi EN PRIORITÉ sur le lien personnel fourni ci-dessus — c\'est lui qui rend ce paragraphe unique — et relie-le à ce que le candidat cherche. Complète éventuellement avec un élément concret de l\'offre.' : 'repère UN élément concret et spécifique que l\'entreprise dit d\'elle-même dans l\'offre'} (un programme, une façon de travailler, une valeur affichée, un détail du poste — JAMAIS un mot creux type "innovation", "excellence", "leader") et croise-le avec une motivation réelle du candidat. INTERDIT de paraphraser ou de renvoyer les mots-clés de l'offre ("vous parlez de X, ça m'attire"). C'est l'intersection [spécificité réelle de CETTE entreprise] × [ce qui fait vraiment vibrer le candidat] qui rend ce paragraphe non interchangeable.
 4. Clôture courte et ouverte : une phrase qui appelle un échange. Jamais de logistique (préavis, disponibilité) en guise de fin.
 
 RÈGLES :

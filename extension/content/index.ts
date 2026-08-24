@@ -1,5 +1,5 @@
 import { extractJobOffer } from '../lib/cleaner';
-import { findCoverLetterTextarea, fillTextarea } from './inject';
+import { findCoverLetterTarget, fillTarget } from './inject';
 import type { ContentRequest, OfferResponse, FillResponse } from '../types';
 
 // Le content script ne fait aucun appel réseau. Il répond au popup :
@@ -9,17 +9,22 @@ chrome.runtime.onMessage.addListener((msg: ContentRequest, _sender, sendResponse
   if (msg.type === 'GET_OFFER') {
     const res: OfferResponse = {
       offer: extractJobOffer(),
-      hasTextarea: !!findCoverLetterTextarea(),
+      hasTextarea: !!findCoverLetterTarget(),
     };
     sendResponse(res);
     return; // réponse synchrone
   }
 
   if (msg.type === 'FILL_TEXTAREA') {
-    const ta = findCoverLetterTextarea();
-    const res: FillResponse = ta
-      ? { ok: fillTextarea(ta, msg.text) }
-      : { ok: false, error: 'Aucune zone de texte trouvée sur la page' };
+    const target = findCoverLetterTarget();
+    let res: FillResponse;
+    if (!target) {
+      res = { ok: false, error: 'Aucune zone de texte trouvée sur la page' };
+    } else {
+      res = fillTarget(target, msg.text)
+        ? { ok: true }
+        : { ok: false, error: 'Insertion refusée par la page — télécharge le PDF' };
+    }
     sendResponse(res);
     return;
   }

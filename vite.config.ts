@@ -2,6 +2,11 @@ import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import webExtension from 'vite-plugin-web-extension';
 import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+
+// Dépendances optionnelles de jsPDF, utiles seulement à doc.html() que nous
+// n'appelons pas — remplacées par un stub pour ne pas embarquer ~220 Ko.
+const stub = fileURLToPath(new URL('./stubs/empty.js', import.meta.url));
 
 const browser = (process.env.TARGET_BROWSER ?? 'firefox') as 'chrome' | 'firefox';
 
@@ -34,6 +39,13 @@ function copyIcons(): Plugin {
 }
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      html2canvas: stub,
+      dompurify: stub,
+      canvg: stub,
+    },
+  },
   plugins: [
     react(),
     webExtension({ manifest: buildManifest }),

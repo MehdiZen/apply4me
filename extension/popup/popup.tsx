@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import {
   GearSix, Copy, CheckCircle, PaperPlane,
   DownloadSimple, ArrowLineDown, ArrowsClockwise, CircleNotch,
+  NotePencil, CaretDown, CaretRight,
 } from '@phosphor-icons/react';
 import { getApiConfig, getProfile } from '../lib/storage';
 import { generateCoverLetter, generateHeadline } from '../lib/llm';
@@ -159,6 +160,8 @@ interface S {
   letter: string;
   headline: string;
   inserted: boolean;
+  note: string;
+  noteOpen: boolean;
 }
 
 const PROFILE_KEYS = ['targetRole', 'motivations', 'proudAchievement', 'humanEdge', 'writingSample'] as const;
@@ -177,7 +180,7 @@ function sendToTab<T>(tabId: number, msg: object): Promise<T | null> {
   });
 }
 
-interface Cached { letter: string; headline: string }
+interface Cached { letter: string; headline: string; note?: string }
 const cacheKey = (url: string) => 'lm:' + url.split('#')[0];
 async function getCached(url: string): Promise<Cached | null> {
   try { const k = cacheKey(url); const r = await chrome.storage.session.get(k); return (r[k] as Cached) ?? null; }
@@ -190,19 +193,19 @@ async function setCached(url: string, val: Cached): Promise<void> {
 function App() {
   const [s, setS] = useState<S>({
     phase: 'init', message: '', offer: '', offerChars: 0, hasTextarea: false,
-    letter: '', headline: '', inserted: false,
+    letter: '', headline: '', inserted: false, note: '', noteOpen: false,
   });
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [tabUrl, setTabUrl] = useState<string>('');
   const patch = useCallback((p: Partial<S>) => setS(prev => ({ ...prev, ...p })), []);
 
-  const runGeneration = useCallback(async (offer: string, prof: UserProfile, url: string) => {
+  const runGeneration = useCallback(async (offer: string, prof: UserProfile, url: string, note?: string) => {
     patch({ phase: 'generating', message: 'Rédaction en cours…', letter: '', headline: '', inserted: false });
     try {
-      const letter = await generateCoverLetter(offer, prof);
+      const letter = await generateCoverLetter(offer, prof, note);
       let headline = '';
       try { headline = await generateHeadline(offer, prof); } catch { /* accroche optionnelle */ }
-      if (url) await setCached(url, { letter, headline });
+      if (url) await setCached(url, { letter, headline, note });
       patch({ phase: 'done', message: 'Lettre prête.', letter, headline });
     } catch (e) {
       patch({ phase: 'error', message: e instanceof Error ? e.message : 'Échec de la génération.' });
@@ -229,7 +232,11 @@ function App() {
 
       const cached = url ? await getCached(url) : null;
       if (cached?.letter) {
-        patch({ phase: 'done', message: 'Lettre prête.', letter: cached.letter, headline: cached.headline });
+        patch({
+          phase: 'done', message: 'Lettre prête.',
+          letter: cached.letter, headline: cached.headline,
+          note: cached.note ?? '', noteOpen: !!cached.note,
+        });
         return;
       }
 
@@ -244,8 +251,8 @@ function App() {
   }, [patch, runGeneration]);
 
   const regenerate = useCallback(() => {
-    if (profile && s.offer.trim()) runGeneration(s.offer, profile, tabUrl);
-  }, [profile, s.offer, tabUrl, runGeneration]);
+    if (profile && s.offer.trim()) runGeneration(s.offer, profile, tabUrl, s.note);
+  }, [profile, s.offer, s.note, tabUrl, runGeneration]);
 
   const insert = useCallback(async () => {
     const tab = await getActiveTab();
@@ -337,6 +344,49 @@ function App() {
             <div style={{ marginTop: 13 }} />
             {s.headline && <OutputBlock title="Accroche CV — adaptée à l'offre" text={s.headline} />}
             {s.letter && <OutputBlock title="Lettre de motivation" text={s.letter} paper />}
+
+            {/* Note perso — le seul élément que le modèle ne peut pas deviner */}
+            {(s.letter || s.phase === 'ready') && (
+              <div style={{ margin: '0 16px 12px' }}>
+                <button
+                  onClick={() => patch({ noteOpen: !s.noteOpen })}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    background: 'transparent', border: 'none', padding: '4px 0',
+                    color: s.note.trim() ? C.accent : C.muted,
+                    fontSize: 11.5, fontFamily: C.font, cursor: 'pointer', outline: 'none',
+                  }}
+                >
+                  {s.noteOpen ? <CaretDown size={12} weight="bold" /> : <CaretRight size={12} weight="bold" />}
+                  <NotePencil size={13} />
+                  Pourquoi cette boîte&nbsp;? {s.note.trim() && !s.noteOpen ? '· note ajoutée' : ''}
+                </button>
+
+                {s.noteOpen && (
+                  <div style={{ marginTop: 8 }}>
+                    <textarea
+                      value={s.note}
+                      onChange={e => patch({ note: e.target.value })}
+                      rows={3}
+                      placeholder="Ex : j'utilise leur appli tous les jours · une amie y travaille et m'en dit du bien · j'ai vu leur reportage sur…"
+                      style={{
+                        width: '100%', padding: '10px 12px', borderRadius: 13,
+                        border: `1px solid ${C.border}`, background: '#FFFCF7',
+                        color: C.text, fontSize: 12, lineHeight: 1.6, fontFamily: C.font,
+                        outline: 'none', resize: 'none',
+                      }}
+                    />
+                    <p style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5, margin: '6px 2px 8px' }}>
+                      Ta vraie raison, avec tes mots. C'est ce qui rend la lettre unique — l'IA ne peut pas l'inventer.
+                    </p>
+                    <Btn onClick={regenerate} variant="primary" full loading={busy} disabled={!s.offer.trim()}>
+                      <ArrowsClockwise size={13} weight="bold" />
+                      {s.letter ? 'Régénérer avec ma note' : 'Générer avec ma note'}
+                    </Btn>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Actions */}
             {s.letter && (
