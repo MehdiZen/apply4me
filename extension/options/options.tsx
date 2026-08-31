@@ -577,13 +577,17 @@ function StepProfile({
         placeholder="Ex : j'ai réorganisé l'accueil d'un service et réduit l'attente de moitié ; j'ai lancé un rayon qui a fait +20% de ventes ; j'ai formé 3 nouveaux collègues."
         hint="Avec contexte, action, résultat — idéalement un chiffre. C'est ta meilleure preuve." />
 
-      <Field label="Ce que tu apportes, au-delà de ton CV" value={profile.humanEdge ?? ''} onChange={set('humanEdge')} multiline rows={2}
-        placeholder="Ex : je débloque les gens autour de moi, j'assume les sujets que personne ne veut prendre…"
-        hint="Ce qui te distingue humainement, qu'un recruteur ne devine pas en lisant tes lignes." />
+      <Field label="Ce que les gens apprécient chez toi au travail" value={profile.humanEdge ?? ''} onChange={set('humanEdge')} multiline rows={2}
+        placeholder="Ex : je garde mon calme dans le rush, je remarque vite quand un collègue ne va pas bien, je tiens parole même sous pression, les nouveaux se sentent à l'aise avec moi…"
+        hint="Ce qui te distingue humainement, au-delà de ton CV." />
 
       <Field label="Quelques phrases avec tes mots" value={profile.writingSample ?? ''} onChange={set('writingSample')} multiline rows={3}
         placeholder="Écris comme tu parles, par exemple en expliquant à un ami pourquoi tu fais ce métier."
         hint="Le LLM imitera ce registre et ce rythme — c'est le secret pour que la lettre sonne comme toi." />
+
+      <Field label="Autre chose d'important à savoir sur toi ?" value={profile.otherContext ?? ''} onChange={set('otherContext')} multiline rows={2}
+        placeholder="Ex : je change de secteur après 10 ans en restauration, je reviens d'un congé parental, j'ai une contrainte de mobilité…"
+        hint="Optionnel — un contexte qui ne rentre nulle part ailleurs mais que tu veux que la lettre prenne en compte." />
 
       <div style={{ display: 'flex', gap: 16 }}>
         <Field label="Ton de la lettre (optionnel)" value={profile.toneHint ?? ''} onChange={set('toneHint')}
@@ -655,6 +659,7 @@ function App() {
       proudAchievement: profile.proudAchievement ?? '',
       humanEdge: profile.humanEdge ?? '',
       writingSample: profile.writingSample ?? '',
+      otherContext: profile.otherContext,
       toneHint: profile.toneHint,
       salaryExpectation: profile.salaryExpectation,
       availability: profile.availability,

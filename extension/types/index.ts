@@ -5,6 +5,7 @@ export interface UserProfile {
   proudAchievement: string; // une réussite concrète, avec contexte / chiffres
   humanEdge: string;        // ce qu'il apporte au-delà du CV
   writingSample: string;    // quelques phrases avec ses mots — mimique de voix
+  otherContext?: string;    // optionnel : contexte libre qui ne rentre nulle part ailleurs
   toneHint?: string;        // optionnel : 1-3 mots de ton
   salaryExpectation?: string;
   availability?: string;

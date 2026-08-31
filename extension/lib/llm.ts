@@ -91,7 +91,7 @@ OFFRE D'EMPLOI :
 ${jobOffer}
 
 LE CANDIDAT (n'invente jamais au-delà de ces éléments) :
-${field('Poste visé', profile.targetRole)}${field('CV', profile.cvText)}${field('Ce qui le motive', profile.motivations)}${field('Réussite concrète dont il est fier', profile.proudAchievement)}${field('Ce qu\'il apporte au-delà du CV', profile.humanEdge)}${field('Ton souhaité', profile.toneHint)}${field('Prétentions', profile.salaryExpectation)}${field('Disponibilité', profile.availability)}
+${field('Poste visé', profile.targetRole)}${field('CV', profile.cvText)}${field('Ce qui le motive', profile.motivations)}${field('Réussite concrète dont il est fier', profile.proudAchievement)}${field('Ce qu\'il apporte au-delà du CV', profile.humanEdge)}${field('Contexte supplémentaire à prendre en compte', profile.otherContext)}${field('Ton souhaité', profile.toneHint)}${field('Prétentions', profile.salaryExpectation)}${field('Disponibilité', profile.availability)}
 ÉCHANTILLON DE SA FAÇON D'ÉCRIRE — imite ce registre, ce rythme, ce niveau de langue :
 """
 ${(profile.writingSample || '').trim() || '(non fourni — adopte un ton naturel, direct, sans sur-formalité)'}
