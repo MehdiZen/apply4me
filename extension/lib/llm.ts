@@ -71,9 +71,11 @@ function field(label: string, value?: string): string {
 export async function generateCoverLetter(
   jobOffer: string,
   profile: UserProfile,
-  companyNote?: string
+  companyNote?: string,
+  regenHint?: string
 ): Promise<string> {
   const note = (companyNote ?? '').trim();
+  const hint = (regenHint ?? '').trim();
 
   // Raison personnelle fournie par l'utilisateur : le seul élément que le modèle
   // ne peut pas déduire de l'offre. Elle prend le pas sur le §3 générique.
@@ -83,6 +85,16 @@ export async function generateCoverLetter(
 ${note}
 """
 Reformule-le dans le fil de la lettre sans le citer mot pour mot, et sans RIEN inventer autour : n'ajoute aucun détail, aucune anecdote, aucun fait qui ne figure pas ci-dessus.\n`
+    : '';
+
+  // Instruction ponctuelle sur CETTE tentative (ex : "trop long", "moins formel").
+  // Prioritaire sur le style par défaut, mais ne lève jamais les garde-fous
+  // anti-invention / anti-arrogance ci-dessous.
+  const hintBlock = hint
+    ? `\nAJUSTEMENT DEMANDÉ PAR LE CANDIDAT SUR CETTE VERSION (à respecter en priorité, sans jamais inventer de fait nouveau ni casser les règles ci-dessous) :
+"""
+${hint}
+"""\n`
     : '';
 
   const prompt = `Tu écris la lettre de motivation À LA PLACE du candidat, comme un nègre littéraire qui imite sa voix. Le résultat doit donner l'impression d'avoir été écrit par lui — pas par une IA, pas par un modèle de lettre.
@@ -106,7 +118,7 @@ PLAN — 4 paragraphes courts, 230 à 300 mots :
 2. UNE seule preuve, la plus pertinente : un projet ou une réussite précise, développée, qui répond DIRECTEMENT à ce besoin. Fais le pont implicite « vous cherchez X → j'ai déjà fait X ». Surtout pas un inventaire de technologies.
 3. Pourquoi eux : ${note ? 'appuie-toi EN PRIORITÉ sur le lien personnel fourni ci-dessus — c\'est lui qui rend ce paragraphe unique — et relie-le à ce que le candidat cherche. Complète éventuellement avec un élément concret de l\'offre.' : 'repère UN élément concret et spécifique que l\'entreprise dit d\'elle-même dans l\'offre'} (un programme, une façon de travailler, une valeur affichée, un détail du poste — JAMAIS un mot creux type "innovation", "excellence", "leader") et croise-le avec une motivation réelle du candidat. INTERDIT de paraphraser ou de renvoyer les mots-clés de l'offre ("vous parlez de X, ça m'attire"). C'est l'intersection [spécificité réelle de CETTE entreprise] × [ce qui fait vraiment vibrer le candidat] qui rend ce paragraphe non interchangeable.
 4. Clôture courte et ouverte : une phrase qui appelle un échange. Jamais de logistique (préavis, disponibilité) en guise de fin.
-
+${hintBlock}
 RÈGLES :
 - Français, vouvoiement. Ouvre par "Madame, Monsieur,". Termine OBLIGATOIREMENT par "Cordialement," seul sur la toute dernière ligne, sans signer de nom.
 - Quel que soit le métier (soin, vente, artisanat, tech, enseignement…), bannis le jargon et les sigles. Au maximum 2 ou 3 termes spécialisés, et seulement s'ils parlent au recruteur — jamais une liste. Décris toujours l'impact concret et le résultat, pas l'outil ni le sigle. La lettre doit être limpide pour un recruteur non spécialiste du domaine, au premier passage.

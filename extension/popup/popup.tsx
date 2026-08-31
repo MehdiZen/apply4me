@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import {
   GearSix, Copy, CheckCircle, PaperPlane,
   DownloadSimple, ArrowLineDown, ArrowsClockwise, CircleNotch,
-  NotePencil, CaretDown, CaretRight,
+  NotePencil, CaretDown, CaretRight, MagicWand,
 } from '@phosphor-icons/react';
 import { getApiConfig, getProfile } from '../lib/storage';
 import { generateCoverLetter, generateHeadline } from '../lib/llm';
@@ -35,6 +35,14 @@ const C = {
 };
 
 const MIN_OFFER_CHARS = 220;
+
+// Puces d'ajustement rapide pour régénérer — évite la page blanche.
+const REGEN_CHIPS = [
+  { label: 'Plus courte', phrase: 'Sois plus court, va à l\'essentiel.' },
+  { label: 'Moins formel', phrase: 'Adopte un ton moins formel, plus naturel.' },
+  { label: 'Plus chaleureux', phrase: 'Sois plus chaleureux et humain dans le ton.' },
+  { label: 'Le §3 ne convainc pas', phrase: 'Le paragraphe "pourquoi cette entreprise" ne convainc pas, trouve un angle plus fort.' },
+];
 
 const JOB_SIGNALS = [
   'expérience', 'experience', 'compétence', 'competence', 'poste', 'mission',
@@ -162,6 +170,8 @@ interface S {
   inserted: boolean;
   note: string;
   noteOpen: boolean;
+  regenHint: string;
+  regenOpen: boolean;
 }
 
 const PROFILE_KEYS = ['targetRole', 'motivations', 'proudAchievement', 'humanEdge', 'writingSample'] as const;
@@ -194,19 +204,22 @@ function App() {
   const [s, setS] = useState<S>({
     phase: 'init', message: '', offer: '', offerChars: 0, hasTextarea: false,
     letter: '', headline: '', inserted: false, note: '', noteOpen: false,
+    regenHint: '', regenOpen: false,
   });
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [tabUrl, setTabUrl] = useState<string>('');
   const patch = useCallback((p: Partial<S>) => setS(prev => ({ ...prev, ...p })), []);
 
-  const runGeneration = useCallback(async (offer: string, prof: UserProfile, url: string, note?: string) => {
+  const runGeneration = useCallback(async (offer: string, prof: UserProfile, url: string, note?: string, hint?: string) => {
     patch({ phase: 'generating', message: 'Rédaction en cours…', letter: '', headline: '', inserted: false });
     try {
-      const letter = await generateCoverLetter(offer, prof, note);
+      const letter = await generateCoverLetter(offer, prof, note, hint);
       let headline = '';
       try { headline = await generateHeadline(offer, prof); } catch { /* accroche optionnelle */ }
+      // Le cache retient la lettre + la note (liées à l'offre) ; pas l'instruction
+      // ponctuelle de régénération, propre à cette tentative uniquement.
       if (url) await setCached(url, { letter, headline, note });
-      patch({ phase: 'done', message: 'Lettre prête.', letter, headline });
+      patch({ phase: 'done', message: 'Lettre prête.', letter, headline, regenHint: '', regenOpen: false });
     } catch (e) {
       patch({ phase: 'error', message: e instanceof Error ? e.message : 'Échec de la génération.' });
     }
@@ -251,8 +264,18 @@ function App() {
   }, [patch, runGeneration]);
 
   const regenerate = useCallback(() => {
-    if (profile && s.offer.trim()) runGeneration(s.offer, profile, tabUrl, s.note);
-  }, [profile, s.offer, s.note, tabUrl, runGeneration]);
+    if (profile && s.offer.trim()) runGeneration(s.offer, profile, tabUrl, s.note, s.regenHint);
+  }, [profile, s.offer, s.note, s.regenHint, tabUrl, runGeneration]);
+
+  const toggleHintChip = useCallback((phrase: string) => {
+    setS(prev => {
+      const has = prev.regenHint.includes(phrase);
+      const next = has
+        ? prev.regenHint.replace(phrase, '').replace(/\s{2,}/g, ' ').trim()
+        : (prev.regenHint ? prev.regenHint.trim() + ' ' + phrase : phrase);
+      return { ...prev, regenHint: next };
+    });
+  }, []);
 
   const insert = useCallback(async () => {
     const tab = await getActiveTab();
@@ -382,6 +405,69 @@ function App() {
                     <Btn onClick={regenerate} variant="primary" full loading={busy} disabled={!s.offer.trim()}>
                       <ArrowsClockwise size={13} weight="bold" />
                       {s.letter ? 'Régénérer avec ma note' : 'Générer avec ma note'}
+                    </Btn>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Améliorer cette version — instruction ponctuelle, propre à cette tentative */}
+            {s.letter && (
+              <div style={{ margin: '0 16px 12px' }}>
+                <button
+                  onClick={() => patch({ regenOpen: !s.regenOpen })}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    background: 'transparent', border: 'none', padding: '4px 0',
+                    color: s.regenHint.trim() ? C.accent : C.muted,
+                    fontSize: 11.5, fontFamily: C.font, cursor: 'pointer', outline: 'none',
+                  }}
+                >
+                  {s.regenOpen ? <CaretDown size={12} weight="bold" /> : <CaretRight size={12} weight="bold" />}
+                  <MagicWand size={13} />
+                  Améliorer cette version&nbsp;? {s.regenHint.trim() && !s.regenOpen ? '· indication ajoutée' : ''}
+                </button>
+
+                {s.regenOpen && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                      {REGEN_CHIPS.map(c => {
+                        const active = s.regenHint.includes(c.phrase);
+                        return (
+                          <button
+                            key={c.label}
+                            onClick={() => toggleHintChip(c.phrase)}
+                            style={{
+                              padding: '5px 11px', borderRadius: 999,
+                              border: `1px solid ${active ? C.accent : C.border}`,
+                              background: active ? 'rgba(197,106,67,0.12)' : 'transparent',
+                              color: active ? C.accent : C.muted,
+                              fontSize: 11, fontFamily: C.font, cursor: 'pointer', outline: 'none',
+                            }}
+                          >
+                            {c.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <textarea
+                      value={s.regenHint}
+                      onChange={e => patch({ regenHint: e.target.value })}
+                      rows={2}
+                      placeholder="Ex : insiste plus sur mon expérience terrain, enlève la référence au préavis…"
+                      style={{
+                        width: '100%', padding: '10px 12px', borderRadius: 13,
+                        border: `1px solid ${C.border}`, background: '#FFFCF7',
+                        color: C.text, fontSize: 12, lineHeight: 1.6, fontFamily: C.font,
+                        outline: 'none', resize: 'none',
+                      }}
+                    />
+                    <p style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5, margin: '6px 2px 8px' }}>
+                      Vaut pour cette tentative seulement — pas mémorisé après régénération.
+                    </p>
+                    <Btn onClick={regenerate} variant="primary" full loading={busy} disabled={!s.regenHint.trim()}>
+                      <MagicWand size={13} weight="bold" />
+                      Régénérer avec cette indication
                     </Btn>
                   </div>
                 )}
