@@ -5,10 +5,10 @@ import {
   DownloadSimple, ArrowLineDown, ArrowsClockwise, CircleNotch,
   NotePencil, CaretDown, CaretRight, MagicWand,
 } from '@phosphor-icons/react';
-import { getApiConfig, getProfile } from '../lib/storage';
+import { getApiConfig, getProfile, getLetterLang, setLetterLang } from '../lib/storage';
 import { generateCoverLetter, generateHeadline } from '../lib/llm';
 import { downloadCoverLetterPDF } from '../lib/pdf';
-import type { UserProfile, OfferResponse, FillResponse } from '../types';
+import type { UserProfile, OfferResponse, FillResponse, LetterLang } from '../types';
 
 // ── palette marron chaleureuse ────────────────────────────────────────────────
 const C = {
@@ -172,6 +172,7 @@ interface S {
   noteOpen: boolean;
   regenHint: string;
   regenOpen: boolean;
+  lang: LetterLang;
 }
 
 const PROFILE_KEYS = ['targetRole', 'motivations', 'proudAchievement', 'humanEdge', 'writingSample'] as const;
@@ -190,7 +191,7 @@ function sendToTab<T>(tabId: number, msg: object): Promise<T | null> {
   });
 }
 
-interface Cached { letter: string; headline: string; note?: string }
+interface Cached { letter: string; headline: string; note?: string; lang?: LetterLang }
 const cacheKey = (url: string) => 'lm:' + url.split('#')[0];
 async function getCached(url: string): Promise<Cached | null> {
   try { const k = cacheKey(url); const r = await chrome.storage.session.get(k); return (r[k] as Cached) ?? null; }
@@ -204,21 +205,23 @@ function App() {
   const [s, setS] = useState<S>({
     phase: 'init', message: '', offer: '', offerChars: 0, hasTextarea: false,
     letter: '', headline: '', inserted: false, note: '', noteOpen: false,
-    regenHint: '', regenOpen: false,
+    regenHint: '', regenOpen: false, lang: 'fr',
   });
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [tabUrl, setTabUrl] = useState<string>('');
   const patch = useCallback((p: Partial<S>) => setS(prev => ({ ...prev, ...p })), []);
 
-  const runGeneration = useCallback(async (offer: string, prof: UserProfile, url: string, note?: string, hint?: string) => {
+  const runGeneration = useCallback(async (
+    offer: string, prof: UserProfile, url: string, lang: LetterLang, note?: string, hint?: string
+  ) => {
     patch({ phase: 'generating', message: 'Rédaction en cours…', letter: '', headline: '', inserted: false });
     try {
-      const letter = await generateCoverLetter(offer, prof, note, hint);
+      const letter = await generateCoverLetter(offer, prof, lang, note, hint);
       let headline = '';
-      try { headline = await generateHeadline(offer, prof); } catch { /* accroche optionnelle */ }
+      try { headline = await generateHeadline(offer, prof, lang); } catch { /* accroche optionnelle */ }
       // Le cache retient la lettre + la note (liées à l'offre) ; pas l'instruction
       // ponctuelle de régénération, propre à cette tentative uniquement.
-      if (url) await setCached(url, { letter, headline, note });
+      if (url) await setCached(url, { letter, headline, note, lang });
       patch({ phase: 'done', message: 'Lettre prête.', letter, headline, regenHint: '', regenOpen: false });
     } catch (e) {
       patch({ phase: 'error', message: e instanceof Error ? e.message : 'Échec de la génération.' });
@@ -233,6 +236,8 @@ function App() {
         return;
       }
       setProfile(prof);
+      const lang = await getLetterLang();
+      patch({ lang });
 
       const tab = await getActiveTab();
       const url = tab?.url ?? '';
@@ -249,12 +254,13 @@ function App() {
           phase: 'done', message: 'Lettre prête.',
           letter: cached.letter, headline: cached.headline,
           note: cached.note ?? '', noteOpen: !!cached.note,
+          lang: cached.lang ?? lang,
         });
         return;
       }
 
       if (offer.trim().length >= MIN_OFFER_CHARS && looksLikeJobOffer(offer)) {
-        await runGeneration(offer, prof, url);
+        await runGeneration(offer, prof, url, lang);
       } else if (offer.trim().length >= MIN_OFFER_CHARS) {
         patch({ phase: 'ready', message: 'Page lue. Génère si c\'est bien une offre d\'emploi.' });
       } else {
@@ -264,8 +270,21 @@ function App() {
   }, [patch, runGeneration]);
 
   const regenerate = useCallback(() => {
-    if (profile && s.offer.trim()) runGeneration(s.offer, profile, tabUrl, s.note, s.regenHint);
-  }, [profile, s.offer, s.note, s.regenHint, tabUrl, runGeneration]);
+    if (profile && s.offer.trim()) runGeneration(s.offer, profile, tabUrl, s.lang, s.note, s.regenHint);
+  }, [profile, s.offer, s.lang, s.note, s.regenHint, tabUrl, runGeneration]);
+
+  const changeLang = useCallback((lang: LetterLang) => {
+    if (lang === s.lang) return;
+    patch({
+      lang,
+      // La lettre affichée ne se met pas à jour toute seule (pas de dépense
+      // token surprise) : on prévient si une régénération est nécessaire.
+      message: s.letter
+        ? `Bascule vers ${lang === 'en' ? 'l\'anglais' : 'le français'} — régénère pour appliquer.`
+        : s.message,
+    });
+    setLetterLang(lang); // mémorisé pour la prochaine offre
+  }, [s.lang, s.letter, s.message, patch]);
 
   const toggleHintChip = useCallback((phrase: string) => {
     setS(prev => {
@@ -314,9 +333,29 @@ function App() {
             <DogezaMark size={28} />
             <span style={{ fontSize: 15, fontWeight: 500, letterSpacing: '-0.01em' }}>apply4me</span>
           </div>
-          <Btn onClick={() => chrome.runtime.openOptionsPage()} variant="soft">
-            <GearSix size={13} /> Config
-          </Btn>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', border: `1px solid ${C.border}`, borderRadius: 999, padding: 2 }}>
+              {(['fr', 'en'] as const).map(l => (
+                <button
+                  key={l}
+                  onClick={() => changeLang(l)}
+                  title={l === 'fr' ? 'Lettre en français' : 'Lettre en anglais'}
+                  style={{
+                    padding: '4px 10px', borderRadius: 999, border: 'none',
+                    background: s.lang === l ? C.accent : 'transparent',
+                    color: s.lang === l ? C.accentFg : C.muted,
+                    fontSize: 11, fontWeight: 500, fontFamily: C.font,
+                    cursor: 'pointer', outline: 'none', transition: `all 0.14s ${C.ease}`,
+                  }}
+                >
+                  {l.toUpperCase()}
+                </button>
+              ))}
+            </div>
+            <Btn onClick={() => chrome.runtime.openOptionsPage()} variant="soft">
+              <GearSix size={13} /> Config
+            </Btn>
+          </div>
         </div>
 
         {/* Status */}

@@ -1,4 +1,4 @@
-import type { UserProfile } from '../types';
+import type { LetterLang, UserProfile } from '../types';
 import { getApiConfig } from './storage';
 
 function log(...args: unknown[]) {
@@ -71,11 +71,31 @@ function field(label: string, value?: string): string {
 export async function generateCoverLetter(
   jobOffer: string,
   profile: UserProfile,
+  lang: LetterLang = 'fr',
   companyNote?: string,
   regenHint?: string
 ): Promise<string> {
   const note = (companyNote ?? '').trim();
   const hint = (regenHint ?? '').trim();
+
+  // Salutation, clôture et listes anti-clichés adaptées à la langue cible.
+  // Le reste des instructions (méta-prompt) reste en français : un LLM
+  // capable suit sans peine des consignes FR pour produire un texte EN.
+  const salutationRule = lang === 'en'
+    ? `Anglais, registre professionnel et chaleureux. Ouvre par "Dear Hiring Manager," (ou "Dear [nom de l'entreprise] team," si le nom de l'entreprise figure dans l'offre). Termine OBLIGATOIREMENT par "Best regards," seul sur la toute dernière ligne, sans signer de nom.`
+    : `Français, vouvoiement. Ouvre par "Madame, Monsieur,". Termine OBLIGATOIREMENT par "Cordialement," seul sur la toute dernière ligne, sans signer de nom.`;
+
+  const bannedOpenersRule = lang === 'en'
+    ? `INTERDIT d'ouvrir par : "I am writing to express my interest", "I am excited to apply for", "I am confident that I would be a great fit", "As a highly motivated professional".`
+    : `INTERDIT d'ouvrir par : "Je me permets de", "C'est avec un grand/vif intérêt", "Fort de mon expérience", "Actuellement à la recherche".`;
+
+  const clichesRule = lang === 'en'
+    ? `Bannis les tics d'IA et les clichés : "hardworking / team player / passionate / dynamic / detail-oriented / results-driven", "I believe I would be an ideal candidate", "a valuable asset to your team", "please do not hesitate to contact me", "I would be thrilled/honored", les triades d'adjectifs, les phrases creuses applicables à n'importe qui.`
+    : `Bannis les tics d'IA et les clichés : "polyvalent / rigoureux / dynamique / passionné / motivé", "mon profil correspond parfaitement", "rejoindre vos équipes", "relever de nouveaux défis", "n'hésitez pas à me contacter", "je serais ravi / honoré", les triades d'adjectifs, les phrases creuses applicables à n'importe qui.`;
+
+  const langDirective = lang === 'en'
+    ? `LANGUE DE LA LETTRE : anglais. Écris l'intégralité du texte en anglais — salutation et formule de politesse incluses — même si le CV, le profil et cette instruction sont en français.\n`
+    : `LANGUE DE LA LETTRE : français.\n`;
 
   // Raison personnelle fournie par l'utilisateur : le seul élément que le modèle
   // ne peut pas déduire de l'offre. Elle prend le pas sur le §3 générique.
@@ -99,6 +119,7 @@ ${hint}
 
   const prompt = `Tu écris la lettre de motivation À LA PLACE du candidat, comme un nègre littéraire qui imite sa voix. Le résultat doit donner l'impression d'avoir été écrit par lui — pas par une IA, pas par un modèle de lettre.
 
+${langDirective}
 OFFRE D'EMPLOI :
 ${jobOffer}
 
@@ -120,11 +141,11 @@ PLAN — 4 paragraphes courts, 230 à 300 mots :
 4. Clôture courte et ouverte : une phrase qui appelle un échange. Jamais de logistique (préavis, disponibilité) en guise de fin.
 ${hintBlock}
 RÈGLES :
-- Français, vouvoiement. Ouvre par "Madame, Monsieur,". Termine OBLIGATOIREMENT par "Cordialement," seul sur la toute dernière ligne, sans signer de nom.
+- ${salutationRule}
 - Quel que soit le métier (soin, vente, artisanat, tech, enseignement…), bannis le jargon et les sigles. Au maximum 2 ou 3 termes spécialisés, et seulement s'ils parlent au recruteur — jamais une liste. Décris toujours l'impact concret et le résultat, pas l'outil ni le sigle. La lettre doit être limpide pour un recruteur non spécialiste du domaine, au premier passage.
-- INTERDIT d'ouvrir par : "Je me permets de", "C'est avec un grand/vif intérêt", "Fort de mon expérience", "Actuellement à la recherche".
-- Bannis les tics d'IA et les clichés : "polyvalent / rigoureux / dynamique / passionné / motivé", "mon profil correspond parfaitement", "rejoindre vos équipes", "relever de nouveaux défis", "n'hésitez pas à me contacter", "je serais ravi / honoré", les triades d'adjectifs, les phrases creuses applicables à n'importe qui.
-- Varie la longueur des phrases (certaines courtes). Reste naturel et fidèle à l'échantillon d'écriture. Pas de sur-formalité guindée.
+- ${bannedOpenersRule}
+- ${clichesRule}
+- Varie la longueur des phrases (certaines courtes). Reste naturel et fidèle à l'échantillon d'écriture (même si elle est écrite dans une autre langue que la lettre — n'imite que le registre et le rythme, jamais la langue). Pas de sur-formalité guindée.
 - Si le nom de l'entreprise figure dans l'offre, utilise-le. Sinon, aucun crochet ni placeholder du type [Entreprise].
 - N'invente aucune expérience, aucun diplôme, aucun chiffre absent du profil. Ne mentionne le préavis ou la disponibilité QUE si l'offre le demande explicitement, et sans contradiction.
 - N'attribue JAMAIS une expérience, un projet ou un résultat à un employeur, un lieu ou une période autres que ceux indiqués dans le profil. Si l'employeur exact est incertain, reste général ("sur un projet industriel", "lors d'une mission") plutôt que de nommer une entreprise au risque de te tromper.
@@ -136,8 +157,10 @@ SORTIE : uniquement le texte de la lettre, prêt à coller. Aucun commentaire, a
 // Accroche / titre de CV aligné sur l'offre — l'utilisateur la colle dans son CV.
 export async function generateHeadline(
   jobOffer: string,
-  profile: UserProfile
+  profile: UserProfile,
+  lang: LetterLang = 'fr'
 ): Promise<string> {
+  const langLine = lang === 'en' ? 'Réponds en anglais.' : 'Réponds en français.';
   const raw = await callLLM(`À partir de cette offre et de ce profil, propose UNE accroche de CV honnête qui aligne le candidat sur le poste, sans mentir ni sur-vendre.
 
 OFFRE :
@@ -145,7 +168,7 @@ ${jobOffer}
 
 PROFIL :
 ${field('Poste visé', profile.targetRole)}${field('CV', profile.cvText)}${field('Réussite', profile.proudAchievement)}
-Réponds UNIQUEMENT avec l'accroche : un titre court, éventuellement suivi d'un sous-titre de 6 à 10 mots. 15 mots maximum au total. Pas de guillemets, pas de superlatif creux, pas de commentaire.`);
+${langLine} Réponds UNIQUEMENT avec l'accroche : un titre court, éventuellement suivi d'un sous-titre de 6 à 10 mots. 15 mots maximum au total. Pas de guillemets, pas de superlatif creux, pas de commentaire.`);
   return raw.replace(/^["'«»\s]+|["'«»\s]+$/g, '');
 }
 

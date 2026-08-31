@@ -1,4 +1,4 @@
-import type { ExtensionStorage, UserProfile } from '../types';
+import type { ExtensionStorage, LetterLang, UserProfile } from '../types';
 
 export async function get<K extends keyof ExtensionStorage>(
   key: K
@@ -35,4 +35,14 @@ export function defaultModel(provider: 'anthropic' | 'openai'): string {
 export async function getProfile(): Promise<UserProfile | null> {
   const result = await get('profile');
   return result ?? null;
+}
+
+// Langue de la lettre — préférence mémorisée, modifiable à chaque offre.
+export async function getLetterLang(): Promise<LetterLang> {
+  const result = await get('letterLang');
+  return result ?? 'fr';
+}
+
+export async function setLetterLang(lang: LetterLang): Promise<void> {
+  await set('letterLang', lang);
 }

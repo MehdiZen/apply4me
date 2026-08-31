@@ -11,11 +11,14 @@ export interface UserProfile {
   availability?: string;
 }
 
+export type LetterLang = 'fr' | 'en';
+
 export interface ExtensionStorage {
   apiKey: string;
   provider: 'anthropic' | 'openai';
   model: string;
   profile: UserProfile;
+  letterLang: LetterLang; // langue de génération de la lettre, choisie par offre
 }
 
 // ── Messages : popup → content script (onglet actif) ──────────────────────────
