@@ -2,11 +2,6 @@ import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import webExtension from 'vite-plugin-web-extension';
 import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-
-// Dépendances optionnelles de jsPDF, utiles seulement à doc.html() que nous
-// n'appelons pas — remplacées par un stub pour ne pas embarquer ~220 Ko.
-const stub = fileURLToPath(new URL('./stubs/empty.js', import.meta.url));
 
 const browser = (process.env.TARGET_BROWSER ?? 'firefox') as 'chrome' | 'firefox';
 
@@ -19,7 +14,8 @@ function buildManifest() {
     return rest;
   }
 
-  return base;
+  // Firefox ne connaît pas chrome.debugger : le PDF y passe par l'impression.
+  return { ...base, permissions: base.permissions.filter((p: string) => p !== 'debugger') };
 }
 
 // Émet les icônes dans le bundle — le plugin web-extension ne les copie pas seul.
@@ -38,17 +34,28 @@ function copyIcons(): Plugin {
   };
 }
 
-export default defineConfig({
-  resolve: {
-    alias: {
-      html2canvas: stub,
-      dompurify: stub,
-      canvg: stub,
+// Build personnel : A4M_SEED=seed/xxx.profil.json embarque un profil chargé
+// au premier lancement. Jamais dans le build public (seed/ est gitignoré).
+function bundleSeed(): Plugin {
+  return {
+    name: 'apply4me-seed',
+    generateBundle() {
+      const seed = process.env.A4M_SEED;
+      if (!seed) return;
+      this.emitFile({ type: 'asset', fileName: 'seed.json', source: readFileSync(seed) });
     },
-  },
+  };
+}
+
+export default defineConfig({
   plugins: [
     react(),
-    webExtension({ manifest: buildManifest }),
+    webExtension({
+      manifest: buildManifest,
+      // Page ouverte par le popup, absente du manifest.
+      additionalInputs: ['extension/workspace/workspace.html'],
+    }),
     copyIcons(),
+    bundleSeed(),
   ],
 });

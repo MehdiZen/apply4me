@@ -1,15 +1,15 @@
 {
   "manifest_version": 3,
   "name": "apply4me",
-  "version": "0.1.0",
-  "description": "Génère ta lettre de motivation sur-mesure à partir de l'offre, en un clic.",
+  "version": "0.2.0",
+  "description": "Verdict, CV adapté et lettre de motivation sur mesure pour chaque offre d'emploi. Ta clé, tes données, aucun serveur.",
   "browser_specific_settings": {
     "gecko": {
       "id": "apply4me@apply4me.local",
       "strict_min_version": "121.0"
     }
   },
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage", "activeTab", "debugger"],
   "host_permissions": ["https://*/*", "http://*/*"],
   "icons": {
     "16": "icons/16.png",

@@ -1,541 +1,587 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  GearSix, Copy, CheckCircle, PaperPlane,
-  DownloadSimple, ArrowLineDown, ArrowsClockwise, CircleNotch,
-  NotePencil, CaretDown, CaretRight, MagicWand,
+  ArrowRight, ArrowsClockwise, Check, CircleNotch, GearSix, MagnifyingGlass, SealCheck, Warning,
 } from '@phosphor-icons/react';
-import { getApiConfig, getProfile, getLetterLang, setLetterLang } from '../lib/storage';
-import { generateCoverLetter, generateHeadline } from '../lib/llm';
-import { downloadCoverLetterPDF } from '../lib/pdf';
-import type { UserProfile, OfferResponse, FillResponse, LetterLang } from '../types';
+import type {
+  FactBase, Job, LetterLang, MatchResult, OfferAnalysis, OfferResponse, OfferSignal, SearchPreferences, Settings,
+} from '../types';
+import { combineVerdict, evaluateDesirability, type Desirability, type JobVerdict } from '../lib/desirability';
+import {
+  analysisFingerprint, getApiConfig, getCachedAnalysis, getFactBase, getProfile, getSettings, getStretchMemory, sessionGet,
+  sessionSet, setCachedAnalysis, setSettings, setStretchMemory,
+} from '../lib/storage';
+import { analyzeOffer } from '../lib/requirements';
+import { matchOffer } from '../lib/matcher';
+import { normalizeName } from '../lib/factbase';
+import { loadBundledSeed } from '../lib/bundle';
+import { Brand, C, ScoreRing, globalCSS } from '../ui/theme';
 
-// ── palette marron chaleureuse ────────────────────────────────────────────────
-const C = {
-  bg: '#FBF5EC',        // crème
-  surface: '#FAF1E2',   // surface chaude
-  soft: '#F1E6D6',      // pilule douce
-  softFg: '#7A6450',
-  paper: '#F7EFE2',     // zone lettre
-  border: '#EADBC7',    // sable
-  text: '#4A352A',      // espresso
-  muted: '#9A8473',     // brun doux
-  label: '#B0875F',     // brun caramel (labels)
-  accent: '#C56A43',    // terracotta
-  accentFg: '#FBF5EC',
-  honey: '#F6E4C2',     // miel (secondaire)
-  honeyFg: '#8A5A1E',
-  sage: '#E7EDDD',      // sauge (succès)
-  sageFg: '#4F6138',
-  error: '#B23B2E',
-  errorDim: '#F6E0D8',
-  font: "-apple-system, BlinkMacSystemFont, 'Segoe UI Variable', system-ui, sans-serif",
-  mono: "'SF Mono', 'Geist Mono', 'JetBrains Mono', monospace",
-  ease: 'cubic-bezier(0.16, 1, 0.3, 1)',
-};
+// Le popup ne fait que l'étape rapide : lire l'offre, rendre un verdict,
+// laisser cocher les ajouts. La rédaction part dans un onglet dédié, qui ne se
+// ferme pas si on clique ailleurs.
 
 const MIN_OFFER_CHARS = 220;
-
-// Puces d'ajustement rapide pour régénérer — évite la page blanche.
-const REGEN_CHIPS = [
-  { label: 'Plus courte', phrase: 'Sois plus court, va à l\'essentiel.' },
-  { label: 'Moins formel', phrase: 'Adopte un ton moins formel, plus naturel.' },
-  { label: 'Plus chaleureux', phrase: 'Sois plus chaleureux et humain dans le ton.' },
-  { label: 'Le §3 ne convainc pas', phrase: 'Le paragraphe "pourquoi cette entreprise" ne convainc pas, trouve un angle plus fort.' },
-];
+const STRETCH_WARN = 6;
 
 const JOB_SIGNALS = [
   'expérience', 'experience', 'compétence', 'competence', 'poste', 'mission',
   'profil', 'recrut', 'candidat', 'cdi', 'cdd', 'stage', 'alternance',
   'salaire', 'télétravail', 'teletravail', 'rejoindre', 'recherchons',
-  'offre d\'emploi', 'responsabilité', 'rémunération', 'hiring', 'apply',
+  'offre d\'emploi', 'responsabilité', 'rémunération', 'hiring', 'apply', 'requirements',
 ];
 function looksLikeJobOffer(text: string): boolean {
   const t = text.toLowerCase();
-  let hits = 0;
-  for (const k of JOB_SIGNALS) if (t.includes(k)) { hits++; if (hits >= 2) return true; }
-  return false;
+  return JOB_SIGNALS.filter(k => t.includes(k)).length >= 2;
 }
 
-// ── logo dogeza ───────────────────────────────────────────────────────────────
-function DogezaMark({ size = 28 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true" style={{ display: 'block', flexShrink: 0 }}>
-      <rect x="3" y="3" width="94" height="94" rx="23" fill={C.accent} />
-      <line x1="12" y1="80" x2="88" y2="80" stroke="#2A1A12" strokeWidth="3" strokeLinecap="round" opacity="0.85" />
-      <rect x="54" y="70" width="31" height="10" rx="5" fill={C.bg} stroke="#2A1A12" strokeWidth="3" />
-      <line x1="63" y1="72" x2="71" y2="54" stroke="#2A1A12" strokeWidth="18" strokeLinecap="round" />
-      <line x1="63" y1="72" x2="71" y2="54" stroke={C.bg} strokeWidth="13" strokeLinecap="round" />
-      <path d="M73,56 C72,38 61,31 50,34 C43,36 39,46 41,57 C46,60 56,61 64,61 C71,61 74,58 73,56 Z" fill={C.bg} stroke="#2A1A12" strokeWidth="3" strokeLinejoin="round" />
-      <line x1="49" y1="57" x2="45" y2="77" stroke="#2A1A12" strokeWidth="12" strokeLinecap="round" />
-      <line x1="49" y1="57" x2="45" y2="77" stroke={C.bg} strokeWidth="8" strokeLinecap="round" />
-      <circle cx="32" cy="62" r="11.5" fill={C.bg} stroke="#2A1A12" strokeWidth="3" />
-    </svg>
-  );
+type Phase = 'init' | 'no-config' | 'no-offer' | 'analyzing' | 'verdict' | 'error';
+
+interface Analysed { offer: string; analysis: OfferAnalysis; pasted?: boolean }
+
+const cleanUrl = (u: string) => u.split('#')[0];
+const jobForKey = (u: string) => `jobFor:${cleanUrl(u)}`;
+
+async function activeTab(): Promise<chrome.tabs.Tab | null> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab ?? null;
 }
 
-// ── Button (pilule) ─────────────────────────────────────────────────────────
-type Variant = 'primary' | 'secondary' | 'success' | 'soft' | 'ghost';
-const VAR: Record<Variant, { bg: string; fg: string; bd: string }> = {
-  primary:   { bg: C.accent, fg: C.accentFg, bd: 'transparent' },
-  secondary: { bg: C.honey,  fg: C.honeyFg,  bd: 'transparent' },
-  success:   { bg: C.sage,   fg: C.sageFg,   bd: 'transparent' },
-  soft:      { bg: C.soft,   fg: C.softFg,   bd: 'transparent' },
-  ghost:     { bg: 'transparent', fg: C.softFg, bd: '#E0CDB4' },
-};
-function Btn({
-  onClick, disabled, variant = 'soft', children, full, loading,
-}: {
-  onClick: () => void;
-  disabled?: boolean;
-  variant?: Variant;
-  children: React.ReactNode;
-  full?: boolean;
-  loading?: boolean;
-}) {
-  const [down, setDown] = useState(false);
-  const v = VAR[variant];
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled || loading}
-      onMouseDown={() => setDown(true)}
-      onMouseUp={() => setDown(false)}
-      onMouseLeave={() => setDown(false)}
-      style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-        width: full ? '100%' : undefined,
-        padding: '9px 16px', borderRadius: 999,
-        border: `1px solid ${v.bd}`,
-        background: v.bg, color: v.fg,
-        fontSize: 12.5, fontWeight: 500, fontFamily: C.font,
-        cursor: disabled || loading ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.4 : 1,
-        transform: down && !disabled ? 'scale(0.96)' : 'scale(1)',
-        transition: `all 0.14s ${C.ease}`,
-        outline: 'none', letterSpacing: '-0.01em', whiteSpace: 'nowrap',
-      }}
-    >
-      {loading
-        ? <CircleNotch size={13} style={{ animation: 'spin 0.75s linear infinite' }} />
-        : children}
-    </button>
-  );
+async function readOffer(tabId: number): Promise<OfferResponse | null> {
+  try {
+    return await chrome.tabs.sendMessage(tabId, { type: 'GET_OFFER' }) as OfferResponse;
+  } catch {
+    return null; // page sans content script (chrome://, PDF, store…)
+  }
 }
 
-// ── Copyable block ──────────────────────────────────────────────────────────
-function OutputBlock({ title, text, paper }: { title: string; text: string; paper?: boolean }) {
-  const [copied, setCopied] = useState(false);
-  const copy = () => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+function App() {
+  const [phase, setPhase] = useState<Phase>('init');
+  const [error, setError] = useState('');
+  const [base, setBase] = useState<FactBase | null>(null);
+  const [settings, setSettingsState] = useState<Settings | null>(null);
+  const [tab, setTab] = useState<chrome.tabs.Tab | null>(null);
+  const [data, setData] = useState<Analysed | null>(null);
+  const [match, setMatch] = useState<MatchResult | null>(null);
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [lang, setLang] = useState<LetterLang>('fr');
+  const [pasted, setPasted] = useState('');
+  const [existingJob, setExistingJob] = useState<string | null>(null);
+  const [showAllCovered, setShowAllCovered] = useState(false);
+
+  const [memory, setMemory] = useState<string[]>([]);
+  const [prefs, setPrefs] = useState<SearchPreferences | undefined>(undefined);
+  // Second axe : ce que la personne cherche. Le verdict affiché combine les deux.
+  const desirability = data ? evaluateDesirability(data.analysis, prefs) : null;
+  const verdict = match && desirability ? combineVerdict(match, desirability) : null;
+
+  const applyMatch = useCallback(async (a: Analysed, b: FactBase, s: Settings) => {
+    const mem = await getStretchMemory();
+    const m = matchOffer(a.analysis, b, s, mem);
+    setMemory(mem);
+    setData(a);
+    setMatch(m);
+    setChecked(Object.fromEntries(m.stretch.map(x => [x.label, x.checked])));
+    setLang(a.analysis.lang);
+    setPhase('verdict');
+  }, []);
+
+  // Cocher / décocher recalcule le verdict : seules les cases cochées comptent.
+  const toggle = useCallback((next: Record<string, boolean>) => {
+    setChecked(next);
+    if (!data || !base || !settings) return;
+    const labels = Object.keys(next).filter(k => next[k]);
+    setMatch(matchOffer(data.analysis, base, settings, memory, new Date(), labels));
+  }, [data, base, settings, memory]);
+
+  // `pasted` : offre collée à la main, sans lien avec l'onglet ouvert.
+  // Déjà analysée (même texte, même base) : le verdict est recalculé sans
+  // rappeler l'IA, donc identique d'une ouverture à l'autre. `force` : Réanalyser.
+  const analyze = useCallback(async (offer: string, b: FactBase, s: Settings, pasted = false, force = false) => {
+    setPhase('analyzing');
+    try {
+      const wanted = (await getProfile())?.preferences;
+      setPrefs(wanted);
+      const key = await analysisFingerprint(offer, b, wanted);
+      let analysis = force ? null : await getCachedAnalysis(key);
+      if (!analysis) {
+        analysis = await analyzeOffer(offer, b, wanted);
+        // Analyse dégradée : pas mise en cache, pour qu'une réouverture la refasse.
+        if (!analysis.warning) await setCachedAnalysis(key, analysis);
+      }
+      const a: Analysed = { offer, analysis, pasted };
+      await applyMatch(a, b, s);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Analyse impossible.');
+      setPhase('error');
+    }
+  }, [applyMatch]);
+
+  useEffect(() => {
+    (async () => {
+      await loadBundledSeed();
+      const [config, b, s] = await Promise.all([getApiConfig(), getFactBase(), getSettings()]);
+      if (!config || !b) { setPhase('no-config'); return; }
+      setBase(b);
+      setSettingsState(s);
+
+      const t = await activeTab();
+      setTab(t);
+      const url = t?.url ?? '';
+      if (url) setExistingJob(await sessionGet<string>(jobForKey(url)));
+
+      const res = t?.id !== undefined ? await readOffer(t.id) : null;
+      const offer = res?.offer?.trim() ?? '';
+      if (offer.length >= MIN_OFFER_CHARS && looksLikeJobOffer(offer)) await analyze(offer, b, s);
+      else setPhase('no-offer');
+    })();
+  }, [analyze]);
+
+  const enableStretch = useCallback(async () => {
+    if (!settings || !base || !data) return;
+    // Relu au moment d'écrire : un réglage changé dans les options pendant
+    // que le popup est ouvert (modèle, économie) n'est pas écrasé.
+    const next = { ...(await getSettings()), allowStretch: true };
+    await setSettings(next);
+    setSettingsState(next);
+    await applyMatch(data, base, next);
+  }, [settings, base, data, applyMatch]);
+
+  const prepare = useCallback(async () => {
+    if (!data || !match || !verdict) return;
+    const forced = verdict.verdict === 'skip';
+    const stretch = match.stretch.filter(s => checked[s.label]).map(s => s.label);
+
+    // Mémoire des ajouts : coché = pré-coché la prochaine fois, décoché = oublié.
+    const memory = new Set(await getStretchMemory());
+    for (const s of match.stretch) {
+      const k = normalizeName(s.label);
+      if (checked[s.label]) memory.add(k); else memory.delete(k);
+    }
+    await setStretchMemory([...memory]);
+
+    const id = crypto.randomUUID();
+    // Offre collée : ni URL ni onglet, sinon "Insérer" écrirait dans une autre
+    // page et le suivi se rattacherait à la mauvaise offre.
+    const url = data.pasted ? '' : tab?.url ?? '';
+    // Le suivi garde le verdict affiché (compétences ET préférences) : une
+    // candidature forcée l'est contre ce verdict-là, avec sa raison.
+    const shown: MatchResult = forced && match.verdict !== 'skip' ? { ...match, verdict: 'skip', reason: verdict.reason } : match;
+    const job: Job = {
+      id, url, tabId: data.pasted ? null : tab?.id ?? null, offer: data.offer, analysis: data.analysis,
+      match: shown, stretch, lang, forced, createdAt: new Date().toISOString(),
+    };
+    await sessionSet(`job:${id}`, job);
+    if (url) await sessionSet(jobForKey(url), id);
+    await chrome.tabs.create({ url: chrome.runtime.getURL(`extension/workspace/workspace.html?job=${id}`) });
+    window.close();
+  }, [data, match, verdict, checked, tab, lang]);
+
+  const reopen = useCallback(async () => {
+    if (!existingJob) return;
+    await chrome.tabs.create({ url: chrome.runtime.getURL(`extension/workspace/workspace.html?job=${existingJob}`) });
+    window.close();
+  }, [existingJob]);
+
+  const reanalyze = useCallback(() => {
+    if (data && base && settings) analyze(data.offer, base, settings, data.pasted, true);
+  }, [data, base, settings, analyze]);
+
   return (
-    <div style={{ margin: '0 16px 12px', borderRadius: 16, border: `1px solid ${C.border}`, overflow: 'hidden', background: '#FFFCF7' }}>
-      <div style={{
-        padding: '9px 11px 9px 13px', display: 'flex', alignItems: 'center',
-        justifyContent: 'space-between', background: C.surface,
-      }}>
-        <span style={{ fontSize: 11, color: C.label, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-          {title}
-        </span>
-        <Btn onClick={copy} variant="soft">
-          {copied
-            ? <><CheckCircle size={12} color={C.sageFg} weight="fill" /> Copié</>
-            : <><Copy size={12} /> Copier</>}
-        </Btn>
+    <>
+      <style>{globalCSS + `body{width:392px}`}</style>
+      <div style={{ width: 392, minHeight: 200 }}>
+        <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px 12px' }}>
+          <Brand size={28} />
+          <IconBtn title="Réglages" onClick={() => chrome.runtime.openOptionsPage()}><GearSix size={16} /></IconBtn>
+        </header>
+
+        {phase === 'init' && <Loading label="Lecture de la page" />}
+        {phase === 'analyzing' && <Loading label="Lecture de l'offre et comparaison avec ton parcours" />}
+
+        {phase === 'no-config' && (
+          <Panel>
+            <Title>Bienvenue</Title>
+            <Text>Connecte ta clé IA et construis ta base de faits depuis ton CV. Ça prend deux minutes, une seule fois.</Text>
+            <div style={{ marginTop: 14 }}>
+              <Btn onClick={() => chrome.runtime.openOptionsPage()} variant="primary" full>Configurer apply4me <ArrowRight size={14} weight="bold" /></Btn>
+            </div>
+          </Panel>
+        )}
+
+        {phase === 'error' && (
+          <Panel>
+            <div style={{ display: 'flex', gap: 8, color: C.error, fontSize: 13, lineHeight: 1.5 }}>
+              <Warning size={16} style={{ flexShrink: 0, marginTop: 1 }} /> {error}
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <Btn onClick={() => setPhase('no-offer')} variant="soft" full>Coller l'offre à la main</Btn>
+            </div>
+          </Panel>
+        )}
+
+        {phase === 'no-offer' && (
+          <Panel>
+            <Title>Pas d'offre détectée ici</Title>
+            <Text>Ouvre une page d'offre d'emploi, ou colle son texte ci-dessous.</Text>
+            <textarea
+              value={pasted}
+              onChange={e => setPasted(e.target.value)}
+              rows={6}
+              placeholder="Intitulé, missions, profil recherché…"
+              style={{
+                width: '100%', marginTop: 12, padding: '10px 12px', borderRadius: 14, border: `1px solid ${C.border}`,
+                background: C.surface, color: C.text, fontSize: 12.5, lineHeight: 1.55, outline: 'none', resize: 'none',
+              }}
+            />
+            <div style={{ marginTop: 10 }}>
+              <Btn
+                onClick={() => base && settings && analyze(pasted.trim(), base, settings, true)}
+                variant="primary" full disabled={pasted.trim().length < 80}
+              >
+                <MagnifyingGlass size={14} weight="bold" /> Analyser l'offre
+              </Btn>
+            </div>
+          </Panel>
+        )}
+
+        {phase === 'verdict' && data && match && settings && verdict && desirability && (
+          <Verdict
+            data={data}
+            match={match}
+            verdict={verdict}
+            desirability={desirability}
+            settings={settings}
+            checked={checked}
+            setChecked={toggle}
+            lang={lang}
+            setLang={setLang}
+            existingJob={!!existingJob}
+            onPrepare={prepare}
+            onReopen={reopen}
+            onReanalyze={reanalyze}
+            onEnableStretch={enableStretch}
+            showAllCovered={showAllCovered}
+            setShowAllCovered={setShowAllCovered}
+          />
+        )}
       </div>
+    </>
+  );
+}
+
+// « Pour toi » : pourquoi oui, pourquoi non, chaque point avec la ligne de
+// l'annonce qui le justifie. Absent quand aucune préférence n'est remplie.
+function ForYou({ d, nextStep }: { d: Desirability; nextStep: string }) {
+  const why = [...d.dealbreakers.map(s => ({ s, tone: 'brick' as const })), ...d.negatives.map(s => ({ s, tone: 'honey' as const }))];
+  const salary = { 'in-range': 'Dans ta cible', below: 'Sous ton plancher', above: 'Au-dessus de ta cible', unknown: 'Fourchette non indiquée' }[d.salary];
+  if (!d.positives.length && !why.length && !d.askSalary && d.salary === 'unknown') return null;
+  return (
+    <Section title="Pour toi">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {d.positives.length > 0 && (
+          <div>
+            <p style={{ fontSize: 11.5, fontWeight: 600, color: C.sageFg, marginBottom: 4 }}>Pourquoi oui</p>
+            {d.positives.map((s, i) => <Reason key={`${i}-${s.label}`} s={s} mark="✓" color={C.sageFg} />)}
+          </div>
+        )}
+        {why.length > 0 && (
+          <div>
+            <p style={{ fontSize: 11.5, fontWeight: 600, color: C.brickFg, marginBottom: 4 }}>Pourquoi non</p>
+            {why.map(({ s, tone }, i) => <Reason key={`${i}-${s.label}`} s={s} mark="✗" color={tone === 'brick' ? C.brickFg : C.honeyFg} strong={tone === 'brick'} />)}
+          </div>
+        )}
+        {/* Seulement si tu as une cible : sinon le salaire n'est pas jugé. */}
+        {(d.salary !== 'unknown' || d.askSalary) && <p style={{ fontSize: 12, color: C.soft }}>Salaire : {salary}</p>}
+        <p style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>→ {nextStep}</p>
+      </div>
+    </Section>
+  );
+}
+
+function Reason({ s, mark, color, strong }: { s: OfferSignal; mark: string; color: string; strong?: boolean }) {
+  return (
+    <div style={{ display: 'flex', gap: 7, fontSize: 12.5, lineHeight: 1.45, marginBottom: 5 }}>
+      <span style={{ color, fontWeight: 700, flexShrink: 0 }}>{mark}</span>
+      <span>
+        <span style={{ color: C.text, fontWeight: strong ? 650 : 500 }}>{s.label}{strong ? ' (rédhibitoire)' : ''}</span>
+        {s.quote && <span style={{ display: 'block', fontSize: 11.5, color: C.muted, fontStyle: 'italic' }}>« {s.quote} »</span>}
+      </span>
+    </div>
+  );
+}
+
+function Verdict({
+  data, match, verdict, desirability, settings, checked, setChecked, lang, setLang, existingJob,
+  onPrepare, onReopen, onReanalyze, onEnableStretch, showAllCovered, setShowAllCovered,
+}: {
+  data: Analysed;
+  match: MatchResult;
+  verdict: JobVerdict;
+  desirability: Desirability;
+  settings: Settings;
+  checked: Record<string, boolean>;
+  setChecked: (c: Record<string, boolean>) => void;
+  lang: LetterLang;
+  setLang: (l: LetterLang) => void;
+  existingJob: boolean;
+  onPrepare: () => void;
+  onReopen: () => void;
+  onReanalyze: () => void;
+  onEnableStretch: () => void;
+  showAllCovered: boolean;
+  setShowAllCovered: (v: boolean) => void;
+}) {
+  const a = data.analysis;
+  const apply = verdict.verdict !== 'skip';
+  const tone = !apply ? 'bad' : verdict.verdict === 'maybe' ? 'mid' : match.score >= 70 ? 'good' : 'mid';
+  const headline = verdict.verdict === 'apply' ? 'Fonce' : verdict.verdict === 'maybe' ? 'À voir' : match.verdict === 'skip' ? 'Écart trop grand' : 'Pas pour toi';
+  const stretchLabels = new Set(match.stretch.map(s => normalizeName(s.label)));
+  // Ce qui est proposé en case n'est pas répété dans "Il te manque".
+  const softGaps = match.softGaps.filter(g => !stretchLabels.has(normalizeName(g)));
+  const hardGaps = match.hardGaps.filter(g => !stretchLabels.has(normalizeName(g)));
+  const checkedCount = Object.values(checked).filter(Boolean).length;
+  const covered = showAllCovered ? match.covered : match.covered.slice(0, 8);
+  // Seuls les outils nommés deviennent des cases : le lien n'est proposé que s'il y en a.
+  const uncoveredTech = a.requirements.filter(r => r.kind === 'tech' && r.named !== false && !r.matches.length).length;
+
+  return (
+    <div style={{ animation: 'fadeSlide .35s both' }}>
+      {/* L'offre */}
+      <div style={{ padding: '0 16px 12px' }}>
+        <div style={{ fontFamily: C.display, fontSize: 19, fontWeight: 600, letterSpacing: '-0.015em', lineHeight: 1.2 }}>
+          {a.title || 'Offre sans intitulé'}
+        </div>
+        <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>
+          {[a.company || (a.recruiter ? `Client de ${a.recruiter}` : ''), match.yearsNeed ? `${match.yearsNeed} ans demandés` : null].filter(Boolean).join(' · ') || 'Entreprise non détectée'}
+        </div>
+      </div>
+
+      {/* Verdict */}
       <div style={{
-        padding: '12px 13px', maxHeight: paper ? 190 : 78, overflowY: 'auto',
-        fontSize: 12, lineHeight: 1.7, color: '#6A5141',
-        whiteSpace: 'pre-wrap', fontFamily: C.font, background: paper ? C.paper : '#FFFCF7',
+        margin: '0 16px', padding: 14, borderRadius: 20, display: 'flex', gap: 14, alignItems: 'center',
+        background: apply ? (tone === 'good' ? C.sage : C.accentDim) : C.brick,
       }}>
-        {text}
+        <ScoreRing score={match.score} tone={tone} size={58} />
+        <div>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: C.display, fontSize: 16, fontWeight: 650,
+            color: apply ? (tone === 'good' ? C.sageFg : C.honeyFg) : C.brickFg,
+          }}>
+            {verdict.verdict === 'apply' ? <SealCheck size={17} weight="fill" /> : <Warning size={17} weight="fill" />}
+            {headline}
+          </div>
+          <div style={{ fontSize: 12, lineHeight: 1.5, color: C.soft, marginTop: 2 }}>{verdict.reason}</div>
+        </div>
+      </div>
+      {a.warning && (
+        <p style={{ margin: '8px 18px 0', fontSize: 11, color: C.brickFg, lineHeight: 1.45, display: 'flex', gap: 5 }}>
+          <Warning size={13} style={{ flexShrink: 0, marginTop: 1 }} /> {a.warning}
+        </p>
+      )}
+      <p style={{ margin: '7px 18px 0', fontSize: 10.5, color: C.muted, lineHeight: 1.45 }}>
+        Le score mesure la couverture des compétences demandées. Il ne voit ni le niveau visé, ni le nombre de candidats, ni les questions du formulaire.
+      </p>
+
+      <div style={{ padding: '14px 16px 0', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <ForYou d={desirability} nextStep={verdict.nextStep} />
+
+        {match.covered.length > 0 && (
+          <Section title={`Tu couvres (${match.covered.length})`}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+              {covered.map(c => (
+                <Chip key={c.requirement} tone="sage" title={`Prouvé par : ${c.skill}`}>
+                  {c.requirement}{c.level === 'learning' ? ' · hors cadre pro' : ''}
+                </Chip>
+              ))}
+              {match.covered.length > 8 && (
+                <button onClick={() => setShowAllCovered(!showAllCovered)} style={linkBtn}>
+                  {showAllCovered ? 'moins' : `+${match.covered.length - 8}`}
+                </button>
+              )}
+            </div>
+          </Section>
+        )}
+
+        {(match.hardGaps.length > 0 || softGaps.length > 0) && (
+          <Section title="Il te manque">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+              {hardGaps.map(g => <Chip key={g} tone="brick">{g}</Chip>)}
+              {softGaps.map(g => <Chip key={g} tone="honey">{g}</Chip>)}
+            </div>
+            {!settings.allowStretch && uncoveredTech > 0 && (
+              <p style={{ fontSize: 11.5, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>
+                Les ATS filtrent sur ces mots-clés.{' '}
+                <button onClick={onEnableStretch} style={linkBtn}>Me proposer de les ajouter au CV</button>
+              </p>
+            )}
+          </Section>
+        )}
+
+        {match.stretch.length > 0 && (
+          <Section title="Ajouter à ton CV ?">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 4 }}>
+              {match.stretch.map(s => {
+                const on = !!checked[s.label];
+                return (
+                  <label key={s.label} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 12, cursor: 'pointer',
+                    background: on ? 'rgba(197,106,67,0.08)' : 'transparent', transition: `background .15s ${C.ease}`,
+                  }}>
+                    <input type="checkbox" checked={on} onChange={() => setChecked({ ...checked, [s.label]: !on })} style={{ display: 'none' }} />
+                    <span style={{
+                      width: 18, height: 18, borderRadius: 6, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      border: `1.5px solid ${on ? C.accent : C.borderStrong}`, background: on ? C.accent : C.surface,
+                      transition: `all .15s ${C.easeSpring}`,
+                    }}>
+                      {on && <Check size={12} weight="bold" color={C.accentFg} />}
+                    </span>
+                    <span style={{ fontSize: 13, color: C.text, flex: 1 }}>{s.label}</span>
+                    {s.mandatory && <span style={{ fontSize: 10.5, color: C.brickFg, fontWeight: 600 }}>exigé</span>}
+                  </label>
+                );
+              })}
+            </div>
+            <p style={{ fontSize: 11, color: checkedCount > STRETCH_WARN ? C.brickFg : C.muted, marginTop: 7, lineHeight: 1.5 }}>
+              {checkedCount > STRETCH_WARN
+                ? `${checkedCount} ajouts : à ce stade le CV ressemble à une copie de l'annonce.`
+                : 'Ligne Compétences uniquement, jamais dans tes expériences. La lettre les présentera comme des bases que tu développes.'}
+            </p>
+          </Section>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div style={{
+        position: 'sticky', bottom: 0, marginTop: 14, padding: '12px 16px 14px',
+        background: `linear-gradient(to bottom, rgba(251,245,236,0), ${C.bg} 30%)`,
+      }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <LangToggle lang={lang} setLang={setLang} />
+          <div style={{ flex: 1 }}>
+            <Btn onClick={onPrepare} variant={apply ? 'primary' : 'ghost'} full>
+              {apply ? 'Préparer ma candidature' : 'Préparer quand même'} <ArrowRight size={14} weight="bold" />
+            </Btn>
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 9, fontSize: 11.5 }}>
+          <button onClick={onReanalyze} style={{ ...linkBtn, color: C.muted, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <ArrowsClockwise size={12} /> Réanalyser
+          </button>
+          {existingJob && <button onClick={onReopen} style={linkBtn}>Rouvrir la candidature déjà préparée</button>}
+        </div>
+        {!apply && (
+          <p style={{ fontSize: 11, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>
+            {match.verdict !== 'skip'
+              ? 'Ce qui coince vient de ce que tu cherches, pas de tes compétences : à toi de voir si ça se discute.'
+              : match.hardGaps.length > 0 && match.hardGaps.every(g => /ans demandés/.test(g))
+              ? 'Seules les années bloquent : une durée dans une annonce est souvent un souhait. Si le reste colle, tente, c\'est noté dans le suivi.'
+              : 'Si tu y vas quand même, c\'est noté dans le suivi : tu verras plus tard si ça valait le coup.'}
+          </p>
+        )}
       </div>
     </div>
   );
 }
 
-type Phase = 'init' | 'no-config' | 'ready' | 'generating' | 'done' | 'error';
+// ── Petits composants ─────────────────────────────────────────────────────────
 
-interface S {
-  phase: Phase;
-  message: string;
-  offer: string;
-  offerChars: number;
-  hasTextarea: boolean;
-  letter: string;
-  headline: string;
-  inserted: boolean;
-  note: string;
-  noteOpen: boolean;
-  regenHint: string;
-  regenOpen: boolean;
-  lang: LetterLang;
-}
+const linkBtn: React.CSSProperties = {
+  background: 'none', border: 'none', padding: 0, color: C.accent, fontSize: 'inherit',
+  cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3,
+};
 
-const PROFILE_KEYS = ['targetRole', 'motivations', 'proudAchievement', 'humanEdge', 'writingSample'] as const;
-
-function getActiveTab(): Promise<chrome.tabs.Tab | null> {
-  return new Promise(resolve => {
-    chrome.tabs.query({ active: true, currentWindow: true }, tabs => resolve(tabs[0] ?? null));
-  });
-}
-function sendToTab<T>(tabId: number, msg: object): Promise<T | null> {
-  return new Promise(resolve => {
-    chrome.tabs.sendMessage(tabId, msg, res => {
-      if (chrome.runtime.lastError || !res) { resolve(null); return; }
-      resolve(res as T);
-    });
-  });
-}
-
-interface Cached { letter: string; headline: string; note?: string; lang?: LetterLang }
-const cacheKey = (url: string) => 'lm:' + url.split('#')[0];
-async function getCached(url: string): Promise<Cached | null> {
-  try { const k = cacheKey(url); const r = await chrome.storage.session.get(k); return (r[k] as Cached) ?? null; }
-  catch { return null; }
-}
-async function setCached(url: string, val: Cached): Promise<void> {
-  try { await chrome.storage.session.set({ [cacheKey(url)]: val }); } catch { /* session indispo */ }
-}
-
-function App() {
-  const [s, setS] = useState<S>({
-    phase: 'init', message: '', offer: '', offerChars: 0, hasTextarea: false,
-    letter: '', headline: '', inserted: false, note: '', noteOpen: false,
-    regenHint: '', regenOpen: false, lang: 'fr',
-  });
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [tabUrl, setTabUrl] = useState<string>('');
-  const patch = useCallback((p: Partial<S>) => setS(prev => ({ ...prev, ...p })), []);
-
-  const runGeneration = useCallback(async (
-    offer: string, prof: UserProfile, url: string, lang: LetterLang, note?: string, hint?: string
-  ) => {
-    patch({ phase: 'generating', message: 'Rédaction en cours…', letter: '', headline: '', inserted: false });
-    try {
-      const letter = await generateCoverLetter(offer, prof, lang, note, hint);
-      let headline = '';
-      try { headline = await generateHeadline(offer, prof, lang); } catch { /* accroche optionnelle */ }
-      // Le cache retient la lettre + la note (liées à l'offre) ; pas l'instruction
-      // ponctuelle de régénération, propre à cette tentative uniquement.
-      if (url) await setCached(url, { letter, headline, note, lang });
-      patch({ phase: 'done', message: 'Lettre prête.', letter, headline, regenHint: '', regenOpen: false });
-    } catch (e) {
-      patch({ phase: 'error', message: e instanceof Error ? e.message : 'Échec de la génération.' });
-    }
-  }, [patch]);
-
-  useEffect(() => {
-    (async () => {
-      const [config, prof] = await Promise.all([getApiConfig(), getProfile()]);
-      if (!config || !prof?.cvText) {
-        patch({ phase: 'no-config', message: 'Configure ta clé API et ton CV pour commencer.' });
-        return;
-      }
-      setProfile(prof);
-      const lang = await getLetterLang();
-      patch({ lang });
-
-      const tab = await getActiveTab();
-      const url = tab?.url ?? '';
-      setTabUrl(url);
-
-      const res = tab?.id ? await sendToTab<OfferResponse>(tab.id, { type: 'GET_OFFER' }) : null;
-      const offer = res?.offer ?? '';
-      const hasTextarea = res?.hasTextarea ?? false;
-      patch({ offer, hasTextarea, offerChars: offer.trim().length });
-
-      const cached = url ? await getCached(url) : null;
-      if (cached?.letter) {
-        patch({
-          phase: 'done', message: 'Lettre prête.',
-          letter: cached.letter, headline: cached.headline,
-          note: cached.note ?? '', noteOpen: !!cached.note,
-          lang: cached.lang ?? lang,
-        });
-        return;
-      }
-
-      if (offer.trim().length >= MIN_OFFER_CHARS && looksLikeJobOffer(offer)) {
-        await runGeneration(offer, prof, url, lang);
-      } else if (offer.trim().length >= MIN_OFFER_CHARS) {
-        patch({ phase: 'ready', message: 'Page lue. Génère si c\'est bien une offre d\'emploi.' });
-      } else {
-        patch({ phase: 'ready', message: "Ouvre une page d'offre d'emploi pour générer." });
-      }
-    })();
-  }, [patch, runGeneration]);
-
-  const regenerate = useCallback(() => {
-    if (profile && s.offer.trim()) runGeneration(s.offer, profile, tabUrl, s.lang, s.note, s.regenHint);
-  }, [profile, s.offer, s.lang, s.note, s.regenHint, tabUrl, runGeneration]);
-
-  const changeLang = useCallback((lang: LetterLang) => {
-    if (lang === s.lang) return;
-    patch({
-      lang,
-      // La lettre affichée ne se met pas à jour toute seule (pas de dépense
-      // token surprise) : on prévient si une régénération est nécessaire.
-      message: s.letter
-        ? `Bascule vers ${lang === 'en' ? 'l\'anglais' : 'le français'} — régénère pour appliquer.`
-        : s.message,
-    });
-    setLetterLang(lang); // mémorisé pour la prochaine offre
-  }, [s.lang, s.letter, s.message, patch]);
-
-  const toggleHintChip = useCallback((phrase: string) => {
-    setS(prev => {
-      const has = prev.regenHint.includes(phrase);
-      const next = has
-        ? prev.regenHint.replace(phrase, '').replace(/\s{2,}/g, ' ').trim()
-        : (prev.regenHint ? prev.regenHint.trim() + ' ' + phrase : phrase);
-      return { ...prev, regenHint: next };
-    });
-  }, []);
-
-  const insert = useCallback(async () => {
-    const tab = await getActiveTab();
-    const res = tab?.id ? await sendToTab<FillResponse>(tab.id, { type: 'FILL_TEXTAREA', text: s.letter }) : null;
-    if (res?.ok) patch({ inserted: true, message: 'Lettre insérée dans le formulaire.' });
-    else patch({ message: res?.error ?? 'Insertion impossible — télécharge le PDF.' });
-  }, [s.letter, patch]);
-
-  const download = useCallback(() => downloadCoverLetterPDF(s.letter), [s.letter]);
-
-  const busy = s.phase === 'generating';
-  const cvChars = profile?.cvText?.trim().length ?? 0;
-  const profileFilled = profile ? PROFILE_KEYS.filter(k => (profile[k] ?? '').trim()).length : 0;
-  const weakBasis = s.offerChars === 0 || (cvChars === 0 && profileFilled === 0);
-
-  const numColor = (n: number) => (n ? C.text : C.error);
-
+function Loading({ label }: { label: string }) {
   return (
-    <>
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg) } }
-        *{box-sizing:border-box;margin:0;padding:0}
-        body{width:380px;background:${C.bg};-webkit-font-smoothing:antialiased}
-        ::-webkit-scrollbar{width:4px}
-        ::-webkit-scrollbar-track{background:transparent}
-        ::-webkit-scrollbar-thumb{background:${C.border};border-radius:3px}
-      `}</style>
+    <div style={{ padding: '26px 16px 30px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+      <CircleNotch size={24} color={C.accent} style={{ animation: 'spin .8s linear infinite' }} />
+      <p style={{ fontSize: 13, color: C.muted, textAlign: 'center', fontFamily: C.display }}>{label}…</p>
+    </div>
+  );
+}
 
-      <div style={{ width: 380, background: C.bg, fontFamily: C.font, color: C.text }}>
-        {/* Header */}
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '14px 16px', borderBottom: `1px solid ${C.border}`,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-            <DogezaMark size={28} />
-            <span style={{ fontSize: 15, fontWeight: 500, letterSpacing: '-0.01em' }}>apply4me</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ display: 'flex', border: `1px solid ${C.border}`, borderRadius: 999, padding: 2 }}>
-              {(['fr', 'en'] as const).map(l => (
-                <button
-                  key={l}
-                  onClick={() => changeLang(l)}
-                  title={l === 'fr' ? 'Lettre en français' : 'Lettre en anglais'}
-                  style={{
-                    padding: '4px 10px', borderRadius: 999, border: 'none',
-                    background: s.lang === l ? C.accent : 'transparent',
-                    color: s.lang === l ? C.accentFg : C.muted,
-                    fontSize: 11, fontWeight: 500, fontFamily: C.font,
-                    cursor: 'pointer', outline: 'none', transition: `all 0.14s ${C.ease}`,
-                  }}
-                >
-                  {l.toUpperCase()}
-                </button>
-              ))}
-            </div>
-            <Btn onClick={() => chrome.runtime.openOptionsPage()} variant="soft">
-              <GearSix size={13} /> Config
-            </Btn>
-          </div>
-        </div>
+function Panel({ children }: { children: React.ReactNode }) {
+  return <div style={{ padding: '4px 16px 18px', animation: 'fadeSlide .3s both' }}>{children}</div>;
+}
 
-        {/* Status */}
-        <div style={{
-          padding: '11px 16px', minHeight: 42, display: 'flex', alignItems: 'center', gap: 8,
-          background: s.phase === 'error' ? C.errorDim : 'transparent',
-          borderBottom: `1px solid ${C.border}`, transition: `background 0.35s ${C.ease}`,
-        }}>
-          {busy && <CircleNotch size={13} color={C.accent} style={{ animation: 'spin 0.75s linear infinite', flexShrink: 0 }} />}
-          <p style={{ fontSize: 11.5, lineHeight: 1.55, color: s.phase === 'error' ? C.error : C.muted }}>
-            {s.message || (s.phase === 'init' ? 'Lecture de la page…' : '…')}
-          </p>
-        </div>
+function Title({ children }: { children: React.ReactNode }) {
+  return <div style={{ fontFamily: C.display, fontSize: 19, fontWeight: 600, letterSpacing: '-0.015em', marginBottom: 4 }}>{children}</div>;
+}
 
-        {s.phase === 'no-config' ? (
-          <div style={{ padding: 16 }}>
-            <Btn onClick={() => chrome.runtime.openOptionsPage()} variant="primary" full>
-              <GearSix size={13} weight="fill" /> Ouvrir la configuration
-            </Btn>
-          </div>
-        ) : (
-          <>
-            {(s.phase === 'ready' || s.phase === 'error') && (
-              <div style={{ padding: '13px 16px' }}>
-                <Btn onClick={regenerate} variant="primary" full disabled={!s.offer.trim()} loading={busy}>
-                  <PaperPlane size={13} weight="fill" /> Générer la lettre
-                </Btn>
-              </div>
-            )}
+function Text({ children }: { children: React.ReactNode }) {
+  return <p style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>{children}</p>;
+}
 
-            {/* Transparence */}
-            {(s.letter || busy) && (
-              <div style={{
-                margin: '13px 16px 0', padding: '9px 13px', borderRadius: 13,
-                background: weakBasis ? C.errorDim : C.surface,
-                border: `1px solid ${weakBasis ? '#E9C3B8' : C.border}`,
-                fontSize: 11.5, lineHeight: 1.5, color: weakBasis ? C.error : C.muted,
-              }}>
-                Basé sur : offre <b style={{ color: numColor(s.offerChars) }}>{s.offerChars}</b> car.
-                {' · '}CV <b style={{ color: numColor(cvChars) }}>{cvChars}</b> car.
-                {' · '}profil <b style={{ color: numColor(profileFilled) }}>{profileFilled}/5</b>
-                {weakBasis && <> — refais la <span style={{ textDecoration: 'underline', cursor: 'pointer' }}
-                  onClick={() => chrome.runtime.openOptionsPage()}>config</span></>}
-              </div>
-            )}
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p style={{ fontSize: 10.5, fontWeight: 650, color: C.muted, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 7 }}>{title}</p>
+      {children}
+    </div>
+  );
+}
 
-            {/* Outputs */}
-            <div style={{ marginTop: 13 }} />
-            {s.headline && <OutputBlock title="Accroche CV — adaptée à l'offre" text={s.headline} />}
-            {s.letter && <OutputBlock title="Lettre de motivation" text={s.letter} paper />}
+function Chip({ children, tone, title }: { children: React.ReactNode; tone: 'sage' | 'brick' | 'honey'; title?: string }) {
+  const t = { sage: [C.sage, C.sageFg], brick: [C.brick, C.brickFg], honey: [C.accentDim, C.honeyFg] }[tone];
+  return (
+    <span title={title} style={{ padding: '3px 9px', borderRadius: 999, background: t[0], color: t[1], fontSize: 11.5, fontWeight: 500 }}>
+      {children}
+    </span>
+  );
+}
 
-            {/* Note perso — le seul élément que le modèle ne peut pas deviner */}
-            {(s.letter || s.phase === 'ready') && (
-              <div style={{ margin: '0 16px 12px' }}>
-                <button
-                  onClick={() => patch({ noteOpen: !s.noteOpen })}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    background: 'transparent', border: 'none', padding: '4px 0',
-                    color: s.note.trim() ? C.accent : C.muted,
-                    fontSize: 11.5, fontFamily: C.font, cursor: 'pointer', outline: 'none',
-                  }}
-                >
-                  {s.noteOpen ? <CaretDown size={12} weight="bold" /> : <CaretRight size={12} weight="bold" />}
-                  <NotePencil size={13} />
-                  Pourquoi cette boîte&nbsp;? {s.note.trim() && !s.noteOpen ? '· note ajoutée' : ''}
-                </button>
+function LangToggle({ lang, setLang }: { lang: LetterLang; setLang: (l: LetterLang) => void }) {
+  return (
+    <div title="Langue du CV et de la lettre" style={{ display: 'flex', padding: 3, borderRadius: 999, background: C.sunken, border: `1px solid ${C.border}` }}>
+      {(['fr', 'en'] as const).map(l => (
+        <button key={l} onClick={() => setLang(l)} style={{
+          padding: '6px 10px', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 650,
+          background: lang === l ? C.surface : 'transparent', color: lang === l ? C.text : C.muted,
+          boxShadow: lang === l ? '0 1px 3px rgba(63,45,35,0.12)' : 'none',
+        }}>{l.toUpperCase()}</button>
+      ))}
+    </div>
+  );
+}
 
-                {s.noteOpen && (
-                  <div style={{ marginTop: 8 }}>
-                    <textarea
-                      value={s.note}
-                      onChange={e => patch({ note: e.target.value })}
-                      rows={3}
-                      placeholder="Ex : j'utilise leur appli tous les jours · une amie y travaille et m'en dit du bien · j'ai vu leur reportage sur…"
-                      style={{
-                        width: '100%', padding: '10px 12px', borderRadius: 13,
-                        border: `1px solid ${C.border}`, background: '#FFFCF7',
-                        color: C.text, fontSize: 12, lineHeight: 1.6, fontFamily: C.font,
-                        outline: 'none', resize: 'none',
-                      }}
-                    />
-                    <p style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5, margin: '6px 2px 8px' }}>
-                      Ta vraie raison, avec tes mots. C'est ce qui rend la lettre unique — l'IA ne peut pas l'inventer.
-                    </p>
-                    <Btn onClick={regenerate} variant="primary" full loading={busy} disabled={!s.offer.trim()}>
-                      <ArrowsClockwise size={13} weight="bold" />
-                      {s.letter ? 'Régénérer avec ma note' : 'Générer avec ma note'}
-                    </Btn>
-                  </div>
-                )}
-              </div>
-            )}
+function IconBtn({ children, onClick, title }: { children: React.ReactNode; onClick: () => void; title: string }) {
+  return (
+    <button onClick={onClick} title={title} style={{
+      width: 32, height: 32, borderRadius: 999, border: `1px solid ${C.border}`, background: C.surface,
+      color: C.soft, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+    }}>{children}</button>
+  );
+}
 
-            {/* Améliorer cette version — instruction ponctuelle, propre à cette tentative */}
-            {s.letter && (
-              <div style={{ margin: '0 16px 12px' }}>
-                <button
-                  onClick={() => patch({ regenOpen: !s.regenOpen })}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    background: 'transparent', border: 'none', padding: '4px 0',
-                    color: s.regenHint.trim() ? C.accent : C.muted,
-                    fontSize: 11.5, fontFamily: C.font, cursor: 'pointer', outline: 'none',
-                  }}
-                >
-                  {s.regenOpen ? <CaretDown size={12} weight="bold" /> : <CaretRight size={12} weight="bold" />}
-                  <MagicWand size={13} />
-                  Améliorer cette version&nbsp;? {s.regenHint.trim() && !s.regenOpen ? '· indication ajoutée' : ''}
-                </button>
-
-                {s.regenOpen && (
-                  <div style={{ marginTop: 8 }}>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                      {REGEN_CHIPS.map(c => {
-                        const active = s.regenHint.includes(c.phrase);
-                        return (
-                          <button
-                            key={c.label}
-                            onClick={() => toggleHintChip(c.phrase)}
-                            style={{
-                              padding: '5px 11px', borderRadius: 999,
-                              border: `1px solid ${active ? C.accent : C.border}`,
-                              background: active ? 'rgba(197,106,67,0.12)' : 'transparent',
-                              color: active ? C.accent : C.muted,
-                              fontSize: 11, fontFamily: C.font, cursor: 'pointer', outline: 'none',
-                            }}
-                          >
-                            {c.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <textarea
-                      value={s.regenHint}
-                      onChange={e => patch({ regenHint: e.target.value })}
-                      rows={2}
-                      placeholder="Ex : insiste plus sur mon expérience terrain, enlève la référence au préavis…"
-                      style={{
-                        width: '100%', padding: '10px 12px', borderRadius: 13,
-                        border: `1px solid ${C.border}`, background: '#FFFCF7',
-                        color: C.text, fontSize: 12, lineHeight: 1.6, fontFamily: C.font,
-                        outline: 'none', resize: 'none',
-                      }}
-                    />
-                    <p style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5, margin: '6px 2px 8px' }}>
-                      Vaut pour cette tentative seulement — pas mémorisé après régénération.
-                    </p>
-                    <Btn onClick={regenerate} variant="primary" full loading={busy} disabled={!s.regenHint.trim()}>
-                      <MagicWand size={13} weight="bold" />
-                      Régénérer avec cette indication
-                    </Btn>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Actions */}
-            {s.letter && (
-              <div style={{ padding: '2px 16px 16px', display: 'flex', gap: 8, alignItems: 'center' }}>
-                <Btn onClick={regenerate} variant="ghost" loading={busy}>
-                  <ArrowsClockwise size={13} /> Régénérer
-                </Btn>
-                <div style={{ flex: 1 }} />
-                {s.hasTextarea && (
-                  <Btn onClick={insert} variant={s.inserted ? 'success' : 'primary'} disabled={s.inserted}>
-                    {s.inserted
-                      ? <><CheckCircle size={13} weight="fill" color={C.sageFg} /> Insérée</>
-                      : <><ArrowLineDown size={13} weight="bold" /> Insérer</>}
-                  </Btn>
-                )}
-                <Btn onClick={download} variant={s.hasTextarea ? 'secondary' : 'primary'}>
-                  <DownloadSimple size={13} weight="bold" /> PDF
-                </Btn>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </>
+function Btn({ onClick, children, variant = 'soft', disabled, full }: {
+  onClick: () => void;
+  children: React.ReactNode;
+  variant?: 'primary' | 'soft' | 'ghost';
+  disabled?: boolean;
+  full?: boolean;
+}) {
+  const v = {
+    primary: { bg: C.accent, fg: C.accentFg, bd: 'transparent' },
+    soft: { bg: C.accentDim, fg: C.honeyFg, bd: 'transparent' },
+    ghost: { bg: C.surface, fg: C.soft, bd: C.borderStrong },
+  }[variant];
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: full ? '100%' : undefined,
+        padding: '10px 16px', borderRadius: 999, background: v.bg, color: v.fg, border: `1px solid ${v.bd}`,
+        fontSize: 13, fontWeight: 650, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.45 : 1,
+        boxShadow: variant === 'primary' ? '0 6px 16px -8px rgba(164,83,47,0.6)' : 'none',
+        transition: `transform .12s ${C.easeSpring}`,
+      }}
+      onMouseDown={e => { e.currentTarget.style.transform = 'scale(0.97)'; }}
+      onMouseUp={e => { e.currentTarget.style.transform = ''; }}
+      onMouseLeave={e => { e.currentTarget.style.transform = ''; }}
+    >
+      {children}
+    </button>
   );
 }
 

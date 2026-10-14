@@ -1,49 +1,23 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Key, FileText, UserCircle, CheckCircle,
-  Warning, CircleNotch, ArrowRight, ArrowLeft,
+  Warning, CircleNotch, ArrowRight, ArrowLeft, Database, UploadSimple, DownloadSimple,
 } from '@phosphor-icons/react';
-import type { UserProfile } from '../types';
+import { exportProfileFile, importProfileFile, loadBundledSeed } from '../lib/bundle';
+import type { SearchPreferences, UserProfile } from '../types';
 import { testConnection } from '../lib/llm';
+import { defaultModel, upgradeModel } from '../lib/storage';
+import { ModelPicker } from './ModelPicker';
+import { MODELS } from '../lib/models';
 import { extractCVFromFile } from '../lib/cv-extractor';
-
-// ── tokens ───────────────────────────────────────────────────────────────────
-const C = {
-  bg: '#FBF5EC',
-  surface: '#FFFCF7',
-  surfaceHover: '#F7EFE2',
-  border: '#EADBC7',
-  borderFocus: '#C56A43',
-  text: '#4A352A',
-  muted: '#9A8473',
-  subtle: '#C9B7A2',
-  accent: '#C56A43',
-  accentDim: '#F6E4C2',
-  accentFg: '#FBF5EC',
-  error: '#B23B2E',
-  errorDim: '#F6E0D8',
-  font: "-apple-system, BlinkMacSystemFont, 'Segoe UI Variable', system-ui, sans-serif",
-  ease: 'cubic-bezier(0.32, 0.72, 0, 1)',
-  easeSpring: 'cubic-bezier(0.16, 1, 0.3, 1)',
-};
-
-// ── logo dogeza ───────────────────────────────────────────────────────────────
-function DogezaMark({ size = 30 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true" style={{ display: 'block', flexShrink: 0 }}>
-      <rect x="3" y="3" width="94" height="94" rx="23" fill={C.accent} />
-      <line x1="12" y1="80" x2="88" y2="80" stroke="#2A1A12" strokeWidth="3" strokeLinecap="round" opacity="0.85" />
-      <rect x="54" y="70" width="31" height="10" rx="5" fill={C.bg} stroke="#2A1A12" strokeWidth="3" />
-      <line x1="63" y1="72" x2="71" y2="54" stroke="#2A1A12" strokeWidth="18" strokeLinecap="round" />
-      <line x1="63" y1="72" x2="71" y2="54" stroke={C.bg} strokeWidth="13" strokeLinecap="round" />
-      <path d="M73,56 C72,38 61,31 50,34 C43,36 39,46 41,57 C46,60 56,61 64,61 C71,61 74,58 73,56 Z" fill={C.bg} stroke="#2A1A12" strokeWidth="3" strokeLinejoin="round" />
-      <line x1="49" y1="57" x2="45" y2="77" stroke="#2A1A12" strokeWidth="12" strokeLinecap="round" />
-      <line x1="49" y1="57" x2="45" y2="77" stroke={C.bg} strokeWidth="8" strokeLinecap="round" />
-      <circle cx="32" cy="62" r="11.5" fill={C.bg} stroke="#2A1A12" strokeWidth="3" />
-    </svg>
-  );
-}
+import { C, Field, PillBtn } from '../ui/components';
+import { Brand, globalCSS } from '../ui/theme';
+import { StepFactBase } from './FactBaseEditor';
+import { ApplicationsView } from './Applications';
+import { SettingsPanel } from './SettingsPanel';
+import { PreferencesEditor } from './PreferencesEditor';
+import { EMPTY_PREFERENCES } from '../lib/preferences';
 
 // ── Bezel card ────────────────────────────────────────────────────────────────
 function BezelCard({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
@@ -67,130 +41,37 @@ function BezelCard({ children, style }: { children: React.ReactNode; style?: Rea
   );
 }
 
-// ── Input ─────────────────────────────────────────────────────────────────────
-function Field({
-  label, value, onChange, placeholder, type = 'text', multiline, rows = 3,
-  hint,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  type?: string;
-  multiline?: boolean;
-  rows?: number;
-  hint?: string;
-}) {
-  const [focused, setFocused] = useState(false);
-  const base: React.CSSProperties = {
-    width: '100%',
-    padding: '10px 14px',
-    borderRadius: 10,
-    border: `1px solid ${focused ? C.borderFocus : C.border}`,
-    background: focused ? '#FBF1E4' : C.surface,
-    color: C.text,
-    fontSize: 13,
-    fontFamily: C.font,
-    outline: 'none',
-    resize: 'none' as const,
-    transition: `all 0.2s ${C.easeSpring}`,
-    lineHeight: 1.6,
-  };
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <label style={{
-        fontSize: 12, fontWeight: 500, color: '#9A8473', letterSpacing: '-0.01em',
-      }}>
-        {label}
-      </label>
-      {multiline
-        ? <textarea
-            value={value}
-            onChange={e => onChange(e.target.value)}
-            placeholder={placeholder}
-            rows={rows}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            style={base}
-          />
-        : <input
-            type={type}
-            value={value}
-            onChange={e => onChange(e.target.value)}
-            placeholder={placeholder}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            style={base}
-          />}
-      {hint && (
-        <p style={{ fontSize: 11, color: C.muted, lineHeight: 1.5 }}>{hint}</p>
-      )}
-    </div>
-  );
-}
-
-// ── Pill button ───────────────────────────────────────────────────────────────
-function PillBtn({
-  onClick, disabled, loading, variant = 'primary', children,
-}: {
-  onClick: () => void;
-  disabled?: boolean;
-  loading?: boolean;
-  variant?: 'primary' | 'ghost';
-  children: React.ReactNode;
-}) {
-  const [down, setDown] = useState(false);
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled || loading}
-      onMouseDown={() => setDown(true)}
-      onMouseUp={() => setDown(false)}
-      onMouseLeave={() => setDown(false)}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        padding: '10px 22px', borderRadius: 9999,
-        background: variant === 'primary' ? C.accent : '#F1E6D6',
-        color: variant === 'primary' ? C.accentFg : C.text,
-        border: `1px solid ${variant === 'primary' ? 'transparent' : C.border}`,
-        fontSize: 13, fontWeight: 600, fontFamily: C.font,
-        cursor: disabled || loading ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.4 : 1,
-        transform: down && !disabled ? 'scale(0.97) translateY(1px)' : 'scale(1)',
-        transition: `all 0.14s ${C.easeSpring}`,
-        outline: 'none', letterSpacing: '-0.01em',
-      }}
-    >
-      {loading
-        ? <CircleNotch size={14} style={{ animation: 'spin 0.75s linear infinite' }} />
-        : children}
-    </button>
-  );
-}
 
 // ── Step indicator ────────────────────────────────────────────────────────────
 const STEPS = [
   { icon: Key, label: 'Connexion' },
   { icon: FileText, label: 'Votre CV' },
+  { icon: Database, label: 'Base de faits' },
   { icon: UserCircle, label: 'Profil' },
 ];
 
-function StepBar({ current }: { current: number }) {
+// Une fois la configuration faite, toutes les étapes restent accessibles :
+// on revient corriger sa base ou son profil sans refaire le parcours.
+function StepBar({ current, reachable, onSelect }: { current: number; reachable: number; onSelect: (i: number) => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
       {STEPS.map((step, i) => {
         const Icon = step.icon;
         const done = i < current;
         const active = i === current;
+        const clickable = i <= reachable && !active;
         return (
           <div key={i} style={{ display: 'flex', alignItems: 'center' }}>
-            <div style={{
+            <div
+              onClick={() => clickable && onSelect(i)}
+              style={{
               display: 'flex', alignItems: 'center', gap: 7,
               padding: '5px 12px 5px 8px',
               borderRadius: 9999,
               background: active ? C.accentDim : done ? '#F1E6D6' : 'transparent',
               border: `1px solid ${active ? C.borderFocus : done ? C.border : 'transparent'}`,
               transition: `all 0.4s ${C.ease}`,
+              cursor: clickable ? 'pointer' : 'default',
             }}>
               <div style={{
                 width: 22, height: 22, borderRadius: '50%',
@@ -227,23 +108,9 @@ function StepBar({ current }: { current: number }) {
   );
 }
 
-// ── Model lists ───────────────────────────────────────────────────────────────
-const MODELS: Record<'anthropic' | 'openai', { id: string; label: string; desc: string; recommended?: boolean }[]> = {
-  anthropic: [
-    { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', desc: 'Rapide · pas cher' },
-    { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Équilibré', recommended: true },
-    { id: 'claude-opus-4-7', label: 'Opus 4.7', desc: 'Meilleur · plus lent' },
-  ],
-  openai: [
-    { id: 'gpt-5.4-nano', label: 'GPT-5.4 nano', desc: '$0.20/1M · rapide', recommended: true },
-    { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini', desc: '$0.75/1M · plus fin' },
-    { id: 'gpt-5.5', label: 'GPT-5.5', desc: '$5/1M · flagship' },
-  ],
-};
-
 // ── Step 1 — API ──────────────────────────────────────────────────────────────
 function StepAPI({
-  apiKey, setApiKey, provider, setProvider, model, setModel, onNext,
+  apiKey, setApiKey, provider, setProvider, model, setModel, onNext, onImport, imported,
 }: {
   apiKey: string;
   setApiKey: (v: string) => void;
@@ -252,9 +119,12 @@ function StepAPI({
   model: string;
   setModel: (v: string) => void;
   onNext: () => void;
+  onImport: (file: File) => void;
+  imported: boolean;
 }) {
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<null | boolean>(null);
+  const importInput = useRef<HTMLInputElement>(null);
 
   const test = useCallback(async () => {
     if (!apiKey) return;
@@ -273,11 +143,9 @@ function StepAPI({
 
   const handleProviderChange = (p: 'anthropic' | 'openai') => {
     setProvider(p);
-    setModel(MODELS[p].find(m => m.recommended)?.id ?? MODELS[p][0].id);
+    setModel(defaultModel(p));
     setResult(null);
   };
-
-  const models = MODELS[provider];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -322,50 +190,7 @@ function StepAPI({
         </div>
       </div>
 
-      {/* Model selector */}
-      <div>
-        <p style={{ fontSize: 12, fontWeight: 500, color: '#9A8473', marginBottom: 8 }}>Modèle</p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {models.map(m => (
-            <button
-              key={m.id}
-              onClick={() => setModel(m.id)}
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '10px 14px', borderRadius: 10, textAlign: 'left',
-                border: `1px solid ${model === m.id ? C.borderFocus : C.border}`,
-                background: model === m.id ? C.accentDim : C.surface,
-                fontFamily: C.font, cursor: 'pointer',
-                transition: `all 0.2s ${C.easeSpring}`, outline: 'none',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{
-                  width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-                  background: model === m.id ? C.accent : C.muted,
-                  transition: `background 0.2s ${C.easeSpring}`,
-                }} />
-                <span style={{
-                  fontSize: 13, fontWeight: model === m.id ? 600 : 400,
-                  color: model === m.id ? C.text : '#9A8473',
-                }}>
-                  {m.label}
-                </span>
-                {m.recommended && (
-                  <span style={{
-                    fontSize: 10, padding: '1px 6px', borderRadius: 9999,
-                    background: 'rgba(197,106,67,0.16)',
-                    color: C.accent, letterSpacing: '0.04em',
-                  }}>
-                    recommandé
-                  </span>
-                )}
-              </div>
-              <span style={{ fontSize: 11, color: C.muted }}>{m.desc}</span>
-            </button>
-          ))}
-        </div>
-      </div>
+      <ModelPicker provider={provider} model={model} setModel={setModel} />
 
       <Field
         label="Clé API"
@@ -389,6 +214,32 @@ function StepAPI({
                   <span style={{ fontSize: 12, color: C.error }}>Clé invalide</span></>}
           </div>
         )}
+      </div>
+
+      {/* Profil déjà prêt : CV, base de faits et réponses en un fichier */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+        padding: '12px 14px', borderRadius: 12, border: `1px dashed ${C.border}`,
+      }}>
+        <p style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
+          {imported
+            ? 'Profil importé. Vérifie-le dans les étapes suivantes.'
+            : 'Tu as déjà un fichier de profil apply4me ? Importe-le et passe directement à la relecture.'}
+        </p>
+        <input
+          ref={importInput}
+          type="file"
+          accept=".json,application/json"
+          style={{ display: 'none' }}
+          onChange={e => {
+            const f = e.target.files?.[0];
+            if (f) onImport(f);
+            e.target.value = '';
+          }}
+        />
+        <PillBtn onClick={() => importInput.current?.click()} variant="ghost">
+          {imported ? <CheckCircle size={14} weight="fill" color={C.accent} /> : <UploadSimple size={14} />} Importer
+        </PillBtn>
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 8 }}>
@@ -535,10 +386,11 @@ function StepCV({
 
 // ── Step 3 — Profile ──────────────────────────────────────────────────────────
 function StepProfile({
-  profile, setProfile, onBack, onSave, saving, saved,
+  profile, setProfile, onPreferences, onBack, onSave, saving, saved,
 }: {
   profile: Partial<UserProfile>;
   setProfile: (p: Partial<UserProfile>) => void;
+  onPreferences: (p: SearchPreferences) => void;
   onBack: () => void;
   onSave: () => void;
   saving: boolean;
@@ -556,7 +408,7 @@ function StepProfile({
           border: `1px solid ${C.border}`, marginBottom: 12,
           fontSize: 10, color: C.muted, letterSpacing: '0.1em', textTransform: 'uppercase',
         }}>
-          <UserCircle size={9} /> Étape 3
+          <UserCircle size={9} /> Étape 4
         </div>
         <h2 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.04em', color: C.text, marginBottom: 6 }}>
           Ton profil
@@ -596,6 +448,16 @@ function StepProfile({
           placeholder="Ex : 1 mois de préavis" />
       </div>
 
+      <div style={{ paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+        <h3 style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.03em', color: C.text, margin: '12px 0 4px' }}>Ce que je cherche</h3>
+        <p style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6, marginBottom: 14 }}>
+          Ce qui rend un poste bon pour toi, en plus de tes compétences. Chaque offre te dira pourquoi oui, pourquoi non, ligne de l'annonce à l'appui.
+        </p>
+        <PreferencesEditor value={profile.preferences ?? EMPTY_PREFERENCES} onChange={onPreferences} />
+      </div>
+
+      <SettingsPanel />
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8 }}>
         <PillBtn onClick={onBack} variant="ghost">
           <ArrowLeft size={14} weight="bold" /> Retour
@@ -607,6 +469,9 @@ function StepProfile({
               <span style={{ fontSize: 12, color: C.accent }}>Sauvegardé</span>
             </div>
           )}
+          <PillBtn onClick={async () => { await onSave(); await exportProfileFile(); }} variant="ghost">
+            <DownloadSimple size={14} /> Exporter mon profil
+          </PillBtn>
           <PillBtn onClick={onSave} loading={saving}>
             Terminer <CheckCircle size={14} weight="bold" />
           </PillBtn>
@@ -621,34 +486,84 @@ function App() {
   const [step, setStep] = useState(0);
   const [apiKey, setApiKey] = useState('');
   const [provider, setProvider] = useState<'anthropic' | 'openai'>('anthropic');
-  const [model, setModel] = useState<string>('claude-sonnet-4-6');
+  const [model, setModel] = useState<string>('claude-sonnet-5-5');
   const [cvText, setCvText] = useState('');
   const [profile, setProfile] = useState<Partial<UserProfile>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [reachable, setReachable] = useState(0);
+  const [imported, setImported] = useState(false);
+  const [baseKey, setBaseKey] = useState(0); // remonte l'éditeur après un import
+  const [loaded, setLoaded] = useState(false); // réglages lus : on peut enregistrer sans écraser
+  const [view, setView] = useState<'config' | 'apps'>(location.hash === '#apps' ? 'apps' : 'config');
+
+  const goTo = useCallback((i: number) => {
+    setStep(i);
+    setReachable(r => Math.max(r, i));
+  }, []);
 
   useEffect(() => {
-    chrome.storage.local.get(['apiKey', 'provider', 'model', 'profile'], res => {
+    (async () => {
+      // Build personnel : profil embarqué chargé au premier lancement.
+      const seeded = await loadBundledSeed();
+      if (seeded) setImported(true);
+      const res = await chrome.storage.local.get(['apiKey', 'provider', 'model', 'profile', 'factBase']);
       if (res['apiKey']) setApiKey(res['apiKey'] as string);
-      if (res['provider']) setProvider(res['provider'] as 'anthropic' | 'openai');
-      if (res['model']) setModel(res['model'] as string);
+      // Modèle absent, ancien ou d'un autre fournisseur : celui recommandé chez
+      // le fournisseur enregistré, pour ne jamais garder un réglage incohérent.
+      const p = (res['provider'] as 'anthropic' | 'openai' | undefined) ?? 'anthropic';
+      const m = upgradeModel(res['model'] as string | undefined);
+      setProvider(p);
+      setModel(m && MODELS[p].some(x => x.id === m) ? m : defaultModel(p));
       if (res['profile']) {
         const p = res['profile'] as UserProfile;
         setCvText(p.cvText ?? '');
         setProfile(p);
       }
-    });
+      // Profil et base prêts : tout est accessible. Avec une clé, on ouvre sur
+      // la base de faits ; sans, on reste sur la connexion.
+      if (res['profile'] && res['factBase']) {
+        setReachable(STEPS.length - 1);
+        if (res['apiKey']) setStep(2);
+      }
+      setLoaded(true);
+    })();
+  }, []);
+
+  // Fournisseur, modèle et clé enregistrés dès qu'ils changent, pas seulement
+  // à « Suivant » : un rafraîchissement ne revient plus au modèle par défaut.
+  useEffect(() => {
+    if (!loaded) return;
+    chrome.storage.local.set({ provider, model, ...(apiKey ? { apiKey } : {}) });
+  }, [loaded, provider, model, apiKey]);
+
+  const importProfile = useCallback(async (file: File) => {
+    try {
+      const { profile: p, factBase } = await importProfileFile(file);
+      if (p) {
+        setProfile(p);
+        setCvText(p.cvText);
+      }
+      setImported(true);
+      setBaseKey(k => k + 1);
+      if (p && factBase) setReachable(STEPS.length - 1);
+    } catch {
+      alert('Fichier de profil invalide.');
+    }
   }, []);
 
   const saveStep1 = useCallback(async () => {
     await chrome.storage.local.set({ apiKey, provider, model });
-    setStep(1);
-  }, [apiKey, provider, model]);
+    goTo(1);
+  }, [apiKey, provider, model, goTo]);
 
+  // Le CV est enregistré dès cette étape : quitter la page plus tard ne le perd pas.
   const saveStep2 = useCallback(async () => {
-    setProfile(prev => ({ ...prev, cvText }));
-    setStep(2);
-  }, [cvText]);
+    const next = { ...profile, cvText };
+    setProfile(next);
+    await chrome.storage.local.set({ profile: next });
+    goTo(2);
+  }, [cvText, profile, goTo]);
 
   const saveAll = useCallback(async () => {
     setSaving(true);
@@ -663,6 +578,7 @@ function App() {
       toneHint: profile.toneHint,
       salaryExpectation: profile.salaryExpectation,
       availability: profile.availability,
+      preferences: profile.preferences,
     };
     await chrome.storage.local.set({ profile: full });
     setSaving(false);
@@ -670,44 +586,47 @@ function App() {
     setTimeout(() => setSaved(false), 3000);
   }, [cvText, profile]);
 
+  // Préférences enregistrées dès qu'elles changent : un rafraîchissement ne
+  // les perd pas, et le popup juge les offres avec la version à jour.
+  const savePreferences = useCallback(async (prefs: SearchPreferences) => {
+    setProfile(p => ({ ...p, preferences: prefs }));
+    const stored = (await chrome.storage.local.get('profile'))['profile'] as UserProfile | undefined;
+    if (stored) await chrome.storage.local.set({ profile: { ...stored, preferences: prefs } });
+  }, []);
+
   const stepContent = [
     <StepAPI
       apiKey={apiKey} setApiKey={setApiKey}
       provider={provider} setProvider={setProvider}
       model={model} setModel={setModel}
       onNext={saveStep1}
+      onImport={importProfile} imported={imported}
     />,
     <StepCV
       cvText={cvText} setCvText={setCvText}
       onBack={() => setStep(0)} onNext={saveStep2}
       apiKey={apiKey} provider={provider} model={model}
     />,
+    <StepFactBase
+      key={baseKey}
+      cvText={cvText}
+      onBack={() => setStep(1)} onNext={() => goTo(3)}
+    />,
     <StepProfile
-      profile={profile} setProfile={setProfile}
-      onBack={() => setStep(1)} onSave={saveAll}
+      profile={profile} setProfile={setProfile} onPreferences={savePreferences}
+      onBack={() => setStep(2)} onSave={saveAll}
       saving={saving} saved={saved}
     />,
   ];
 
   return (
     <>
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg) } }
-        @keyframes fadeSlide {
-          from { opacity: 0; transform: translateY(16px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body { min-height: 100vh; background: ${C.bg}; }
-        body { -webkit-font-smoothing: antialiased; }
-        input, textarea, button { font-family: inherit; }
-        textarea { scrollbar-width: thin; scrollbar-color: #EADBC7 transparent; }
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #EADBC7; border-radius: 2px; }
+      <style>{globalCSS + `
+        html, body { min-height: 100vh; }
+        textarea { scrollbar-width: thin; scrollbar-color: ${C.border} transparent; }
       `}</style>
 
-      {/* Bulles marron — ambiance chill */}
+      {/* Bulles marron, ambiance chill */}
       <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0, overflow: 'hidden' }}>
         <div style={{ position: 'absolute', width: 360, height: 360, borderRadius: '50%', background: '#E7C9A8', opacity: 0.4, filter: 'blur(48px)', top: -110, right: -70 }} />
         <div style={{ position: 'absolute', width: 300, height: 300, borderRadius: '50%', background: '#C56A43', opacity: 0.14, filter: 'blur(60px)', bottom: 20, left: -90 }} />
@@ -718,44 +637,54 @@ function App() {
 
       <div style={{
         position: 'relative', zIndex: 1,
-        maxWidth: 680, margin: '0 auto',
-        padding: '52px 24px 80px',
+        maxWidth: view === 'apps' ? 860 : 720, margin: '0 auto',
+        padding: '40px 24px 80px',
         fontFamily: C.font, color: C.text,
         minHeight: '100vh',
       }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 40 }}>
-          <DogezaMark size={32} />
-          <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.03em' }}>
-            apply4me
-          </span>
-          <span style={{
-            marginLeft: 4, fontSize: 10, color: C.muted,
-            padding: '2px 7px', borderRadius: 9999,
-            border: `1px solid ${C.border}`,
-            letterSpacing: '0.06em', textTransform: 'uppercase',
-          }}>
-            Configuration
-          </span>
-        </div>
-
-        {/* Step bar */}
-        <div style={{ marginBottom: 36 }}>
-          <StepBar current={step} />
-        </div>
-
-        {/* Step content */}
-        <BezelCard>
-          <div
-            key={step}
-            style={{
-              padding: '36px 40px',
-              animation: 'fadeSlide 0.4s cubic-bezier(0.16, 1, 0.3, 1) both',
-            }}
-          >
-            {stepContent[step]}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 34 }}>
+          <Brand size={34} />
+          <div style={{ display: 'flex', gap: 2, padding: 3, borderRadius: 999, background: C.sunken, border: `1px solid ${C.border}` }}>
+            {([['config', 'Mon profil'], ['apps', 'Candidatures']] as const).map(([v, label]) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                style={{
+                  padding: '7px 16px', borderRadius: 999, border: 'none', cursor: 'pointer',
+                  fontSize: 13, fontWeight: 600,
+                  background: view === v ? C.surface : 'transparent',
+                  color: view === v ? C.text : C.muted,
+                  boxShadow: view === v ? '0 1px 3px rgba(63,45,35,0.12)' : 'none',
+                }}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-        </BezelCard>
+        </div>
+
+        {view === 'apps' ? <ApplicationsView /> : (
+          <>
+            {/* Step bar */}
+            <div style={{ marginBottom: 28 }}>
+              <StepBar current={step} reachable={reachable} onSelect={setStep} />
+            </div>
+
+            {/* Step content */}
+            <BezelCard>
+              <div
+                key={step}
+                style={{
+                  padding: '36px 40px',
+                  animation: 'fadeSlide 0.4s cubic-bezier(0.16, 1, 0.3, 1) both',
+                }}
+              >
+                {stepContent[step]}
+              </div>
+            </BezelCard>
+          </>
+        )}
       </div>
     </>
   );

@@ -32,7 +32,7 @@ async function extractWithAnthropic(
     },
     body: JSON.stringify({
       model,
-      max_tokens: 4096,
+      max_tokens: 8000,
       messages: [{
         role: 'user',
         content: [
@@ -43,7 +43,9 @@ async function extractWithAnthropic(
     }),
   });
   if (!res.ok) throw new Error(`Anthropic ${res.status}`);
-  const data = await res.json() as { content: { text: string }[] };
+  const data = await res.json() as { content: { text: string }[]; stop_reason?: string };
+  // Un CV coupé en silence fausserait toute la base de faits.
+  if (data.stop_reason === 'max_tokens') throw new Error('CV trop long : extraction tronquée. Colle le texte à la main.');
   return data.content[0].text;
 }
 
@@ -76,9 +78,15 @@ async function extractWithOpenAI(
   });
   if (!res.ok) throw new Error(`OpenAI ${res.status}`);
   const data = await res.json() as {
-    output: { type: string; content: { type: string; text: string }[] }[]
+    status?: string;
+    output: { type: string; content?: { type: string; text: string }[] }[]
   };
-  return data.output[0].content[0].text;
+  if (data.status === 'incomplete') throw new Error('CV trop long : extraction tronquée. Colle le texte à la main.');
+  // Les modèles à raisonnement renvoient d'abord un bloc "reasoning" : on
+  // cherche le message, pas le premier élément.
+  const text = data.output.find(o => o.type === 'message')?.content?.find(c => c.type === 'output_text')?.text;
+  if (!text) throw new Error('Réponse OpenAI sans texte.');
+  return text;
 }
 
 export async function extractCVFromFile(
