@@ -33,7 +33,6 @@ const { answerFor } = await import('./mock-llm.mjs');
 
 const W = 1280;
 const H = 720;
-const BANNER = 40;
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'a4m-demo-'));
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -163,7 +162,7 @@ server.close();
 console.log(`appels au modèle simulé : ${llmCalls}, requêtes bloquées hors local : ${blocked.length}`);
 if (blocked.length) console.log(blocked.join('\n'));
 
-// Montage : bandeau fixe en haut, légende de l'étape, MP4 puis GIF.
+// Montage : légende discrète en bas de chaque étape, MP4 puis GIF.
 const ff = (args, opts = {}) => {
   const r = spawnSync(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-y', ...args], { cwd: work, ...opts });
   if (r.status !== 0) throw new Error(`ffmpeg : ${r.stderr?.toString()}`);
@@ -180,21 +179,18 @@ const captions = {
   insertion: "4. Lettre insérée dans le formulaire",
 };
 const font = 'C\\:/Windows/Fonts/segoeuib.ttf';
-fs.writeFileSync(path.join(work, 'banner.txt'), 'DEMO, données fictives. Réponses du modèle simulées.');
 let t0 = 0;
 const draws = [];
 clips.forEach((c, i) => {
   const d = durationOf(c.file);
   fs.writeFileSync(path.join(work, `cap${i}.txt`), captions[c.name]);
-  draws.push(`drawtext=fontfile='${font}':textfile=cap${i}.txt:fontcolor=white:fontsize=22:x=w-tw-24:y=(${BANNER}-th)/2:enable='between(t,${t0.toFixed(2)},${(t0 + d).toFixed(2)})'`);
+  draws.push(`drawtext=fontfile='${font}':textfile=cap${i}.txt:fontcolor=white@0.95:fontsize=20:box=1:boxcolor=black@0.55:boxborderw=10:x=(w-tw)/2:y=h-46:enable='between(t,${t0.toFixed(2)},${(t0 + d).toFixed(2)})'`);
   t0 += d;
 });
 const inputs = clips.flatMap(c => ['-i', c.file]);
 const chain = clips.map((_, i) => `[${i}:v]fps=25,scale=${W}:${H},setsar=1[v${i}]`).join(';')
   + `;${clips.map((_, i) => `[v${i}]`).join('')}concat=n=${clips.length}:v=1:a=0[cat]`
-  + `;[cat]pad=${W}:${H + BANNER}:0:${BANNER}:color=0xB4351E,`
-  + `drawtext=fontfile='${font}':textfile=banner.txt:fontcolor=white:fontsize=22:x=24:y=(${BANNER}-th)/2,`
-  + `${draws.join(',')},format=yuv420p[out]`;
+  + `;[cat]${draws.join(',')},format=yuv420p[out]`;
 ff([...inputs, '-filter_complex', chain, '-map', '[out]', '-c:v', 'libx264', '-preset', 'slow', '-crf', '22', '-movflags', '+faststart', path.join(OUT, 'demo.mp4')]);
 ff(['-i', path.join(OUT, 'demo.mp4'), '-vf', 'fps=8,scale=900:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle', path.join(OUT, 'demo.gif')]);
 console.log('durée', t0.toFixed(1), 's', fs.statSync(path.join(OUT, 'demo.mp4')).size, 'octets mp4', fs.statSync(path.join(OUT, 'demo.gif')).size, 'octets gif');

@@ -19,7 +19,7 @@ apply4me est une extension de navigateur pour les personnes qui cherchent un emp
 
 ![Démonstration d'apply4me sur une offre fictive](docs/media/demo.gif)
 
-L'enregistrement utilise une offre et un profil fictifs, rangés dans [demo](demo). Les réponses du modèle sont simulées pour que rien ne sorte de la machine. Vous pouvez aussi regarder la [version MP4](docs/media/demo.mp4).
+L'enregistrement utilise une offre fictive et un profil fictif, rangés dans [demo](demo). Les réponses du modèle sont simulées, et la démonstration n'envoie rien sur le réseau. Vous pouvez aussi regarder la [version MP4](docs/media/demo.mp4).
 
 ## Installation
 

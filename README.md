@@ -19,7 +19,7 @@ apply4me is a browser extension for job seekers. One click on a job posting page
 
 ![Demo of apply4me on a fictional job posting](docs/media/demo.gif)
 
-The recording uses a fictional posting and a fictional profile, both stored in [demo](demo). The model replies are simulated so that nothing leaves the machine. You can also watch the [MP4 version](docs/media/demo.mp4).
+The recording uses a fictional job posting and a fictional profile, both stored in [demo](demo). The model replies are simulated, and the demo sends nothing over the network. You can also watch the [MP4 version](docs/media/demo.mp4).
 
 ## Installation
 
