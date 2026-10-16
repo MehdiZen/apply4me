@@ -13,4 +13,10 @@ Thumbs.db
 # Données personnelles (base de faits pré-remplie)
 seed/
 
-docs/
+docs/*
+!docs/media/
+
+# Variables d'environnement et secrets
+.env
+.env.*
+!.env.example
