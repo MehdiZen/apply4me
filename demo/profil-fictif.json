@@ -1,0 +1,64 @@
+{
+  "kind": "apply4me-profile",
+  "version": 1,
+  "profile": {
+    "cvText": "",
+    "targetRole": "Développeur full stack TypeScript, produit web en équipe réduite",
+    "motivations": "Travailler sur un produit utilisé tous les jours par de vrais utilisateurs, avec une équipe où l'on relit le code des autres.",
+    "proudAchievement": "Avoir conçu de bout en bout une application React et Node.js utilisée par 1 200 personnes, puis formé 5 développeurs internes pour qu'ils la maintiennent.",
+    "humanEdge": "J'explique volontiers les choix techniques à des collègues qui ne sont pas développeurs.",
+    "writingSample": "J'ai repris une application interne que personne n'osait toucher. Je l'ai testée, découpée, puis j'ai montré à l'équipe comment la faire évoluer sans casser le reste. Aujourd'hui, elle se déploie en dix minutes.",
+    "toneHint": "direct, simple",
+    "availability": "Préavis d'un mois"
+  },
+  "factBase": {
+    "version": 1,
+    "identity": {
+      "name": "Alex Martin",
+      "title": { "fr": "Développeur full stack", "en": "Full stack developer" },
+      "contact": { "fr": "Lyon, alex.martin@exemple.invalid", "en": "Lyon, alex.martin@exemple.invalid" },
+      "links": [],
+      "languages": { "fr": "Français (natif), anglais (courant)", "en": "French (native), English (fluent)" }
+    },
+    "summary": {
+      "fr": "Développeur full stack, applications web en production avec React, Node.js et TypeScript.",
+      "en": "Full stack developer, web applications in production with React, Node.js and TypeScript."
+    },
+    "experiences": [
+      {
+        "id": "acme", "company": "Acme Software", "location": "Lyon", "contract": "cdi",
+        "role": { "fr": "Développeur full stack", "en": "Full stack developer" },
+        "start": "2024-09", "end": null, "context": null,
+        "groups": [{ "title": null, "facts": [
+          { "text": { "fr": "Conception de bout en bout d'une application React et Node.js pour 1 200 utilisateurs", "en": "End-to-end design of a React and Node.js app for 1,200 users" }, "skills": ["React", "Node.js", "TypeScript"] },
+          { "text": { "fr": "Mise en place de la CI/CD et des tests automatisés", "en": "Set up CI/CD and automated tests" }, "skills": ["CI/CD", "Tests automatisés"] },
+          { "text": { "fr": "Formation de 5 développeurs internes", "en": "Trained 5 internal developers" }, "skills": [] }
+        ] }]
+      },
+      {
+        "id": "blue-studio", "company": "Groupe Blue Studio", "location": "Paris", "contract": "alternance",
+        "role": { "fr": "Développeur web (alternance)", "en": "Web developer (apprenticeship)" },
+        "start": "2022-09", "end": "2024-08", "context": null,
+        "groups": [{ "title": null, "facts": [
+          { "text": { "fr": "Participation au développement d'outils internes en TypeScript", "en": "Contributed to internal TypeScript tools" }, "skills": ["TypeScript"] }
+        ] }]
+      }
+    ],
+    "education": [
+      { "title": { "fr": "Master informatique", "en": "MSc Computer Science" }, "detail": null, "date": "2024" }
+    ],
+    "certifications": [],
+    "projects": [],
+    "skillGroups": [
+      { "id": "dev", "label": { "fr": "Développement", "en": "Development" } }
+    ],
+    "skills": [
+      { "name": "React", "aliases": [], "level": "prod", "group": "dev" },
+      { "name": "Node.js", "aliases": ["NodeJS"], "level": "prod", "group": "dev" },
+      { "name": "TypeScript", "aliases": ["TS"], "level": "prod", "group": "dev" },
+      { "name": "CI/CD", "aliases": [], "level": "prod", "group": "dev" },
+      { "name": "Tests automatisés", "aliases": [], "level": "prod", "group": "dev" }
+    ]
+  },
+  "settings": { "allowStretch": true, "yearsTolerance": 0.7, "scoreThreshold": 50, "economy": true }
+}
