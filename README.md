@@ -50,7 +50,7 @@ Firefox needs `npm run build` instead. Load `dist/manifest.json` as a temporary 
 
 Open the settings with the gear icon of the popup, or from the extension options page. The setup has three steps.
 
-1. Connect your API key and pick a model. The settings page lists the two supported providers.
+1. Connect your API key and pick a model. The settings page lists the two supported providers, Anthropic (Claude models) and OpenAI (GPT models).
 2. Import your CV as a PDF or an image. The extension builds your base of facts and you review it.
 3. Fill in your profile and your search rules.
 

@@ -50,7 +50,7 @@ Firefox demande `npm run build` à la place. Chargez `dist/manifest.json` comme 
 
 Ouvrez les réglages avec la roue dentée du popup, ou depuis la page d'options de l'extension. La mise en route compte trois étapes.
 
-1. Connectez votre clé d'API et choisissez un modèle. La page de réglages liste les deux fournisseurs pris en charge.
+1. Connectez votre clé d'API et choisissez un modèle. La page de réglages liste les deux fournisseurs pris en charge, Anthropic (modèles Claude) et OpenAI (modèles GPT).
 2. Importez votre CV en PDF ou en image. L'extension construit votre base de faits et vous la relisez.
 3. Renseignez votre profil et vos règles de recherche.
 
