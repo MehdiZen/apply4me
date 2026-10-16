@@ -106,4 +106,4 @@ Construisez avec `TARGET_BROWSER=chrome A4M_SEED=demo/profil-fictif.json npx vit
 
 ## Licence
 
-<!-- LICENSE-PENDING -->
+Copyright (c) 2026 Mehdi Zenati. apply4me est **source disponible** sous double licence : gratuit pour un usage personnel non commercial, licence payante pour un usage commercial et professionnel. Voir [LICENSE](LICENSE) pour les termes exacts. Les bibliothèques tierces conservent leurs propres licences.
