@@ -2,6 +2,7 @@ import type {
   Bilingual, ContractKind, Entry, Experience, Fact, FactBase, FactGroup,
   LegacySkillCategory, Skill, SkillGroupLabel, SkillLevel,
 } from '../types';
+import { toHref } from './links';
 import { callLLMJSON } from './llm';
 
 // ── Import depuis le CV ───────────────────────────────────────────────────────
@@ -20,7 +21,7 @@ const SCHEMA = `{
     "context": {"fr":"","en":""} ou null,
     "groups": [{ "title": {"fr":"","en":""} ou null, "facts": [{ "id": "", "text": {"fr":"","en":""}, "skills": [""] }] }]
   }],
-  "education": [{ "id": "", "title": {"fr":"","en":""}, "detail": {"fr":"","en":""} ou null, "date": "" }],
+  "education": [{ "id": "", "title": {"fr":"","en":""}, "detail": {"fr":"","en":""} ou null, "date": "", "links": [""] }],
   "certifications": [ même forme ],
   "projects": [ même forme ],
   "skillGroups": [{ "label": {"fr":"","en":""} }],
@@ -50,6 +51,7 @@ RÈGLES :
 - Dates au format AAAA-MM. Pour une date sans mois, utilise le mois 01 (début) ou 12 (fin).
 - "contract" : déduis-le du CV (CDI, alternance, stage…), "other" si non précisé.
 - "contact" : la ligne de coordonnées telle qu'écrite (ville, mobilité, téléphone, e-mail). "links" : les URL ou domaines (réseau professionnel, portfolio, site).
+- "links" d'une formation, certification ou d'un projet : les URL propres à cette entrée (dépôt, démo, page du diplôme), recopiées telles quelles ; [] s'il n'y en a pas. Une section « Liens du fichier » en fin de CV liste des liens cachés sous du texte : range chacun dans l'entrée dont il porte le nom (ex. github.com/x/monprojet va au projet « monprojet »), sinon dans identity.links ; écarte ceux qui ne correspondent à rien.
 - "languages" : la ligne des langues parlées, telle qu'écrite.
 
 FORMAT DE SORTIE : uniquement un objet JSON conforme à ce schéma, sans markdown ni commentaire :
@@ -167,6 +169,7 @@ export function normalizeFactBase(raw: unknown): FactBase {
         title,
         detail: biOrNull(x['detail']),
         date: str(x['date']),
+        links: strList(x['links']).filter(l => toHref(l) !== null),
       };
     }).filter(x => x.title.fr);
 

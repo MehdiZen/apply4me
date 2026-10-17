@@ -92,6 +92,7 @@ export interface Entry {
   title: Bilingual;
   detail: Bilingual | null;
   date: string;
+  links?: string[];  // dépôt, démo, page : rendus cliquables sur le mot déjà écrit
 }
 
 // Rubrique de la ligne Compétences, telle que l'utilisateur l'a dans son CV.

@@ -7,6 +7,7 @@ import '@fontsource/carlito/latin-ext-700.css';
 import { forwardRef } from 'react';
 import type { ContractKind, Entry, FactBase, LetterLang, TailoredCV } from '../types';
 import { companyCore } from '../lib/factbase';
+import { entrySpans, toHref, type Span } from '../lib/links';
 
 // Documents imprimables. Volontairement sobres et neutres (pas aux couleurs
 // d'apply4me) : c'est le CV du candidat, pas une pub. Base de style validée :
@@ -65,6 +66,7 @@ export const docCSS = `
   .cv ul { margin: 0.5pt 0 0 0; padding-left: 11pt; }
   .cv li { margin: 0.3pt 0; padding-left: 1pt; }
   .cv .line { margin: 0.6pt 0; }
+  .cv a { color: inherit; text-decoration: none; }
   .cv .stretch { background: #FBE3C2; border-radius: 2pt; box-shadow: 0 0 0 1pt #FBE3C2; }
   .letter { font-size: 11pt; line-height: 1.5; }
   .letter .sender b { font-size: 13pt; }
@@ -83,9 +85,19 @@ function dateRange(start: string, end: string | null, lang: LetterLang): string 
   return `${monthLabel(start, lang)} – ${end ? monthLabel(end, lang) : H[lang].now}`;
 }
 
-function entryLine(e: Entry, lang: LetterLang): string {
+// Texte dont certains mots sont des liens (voir lib/links) : rien n'est ajouté à l'écran.
+function Linked({ spans }: { spans: Span[] }) {
+  return <>{spans.map((s, i) => (s.href ? <a key={i} href={s.href}>{s.text}</a> : <span key={i}>{s.text}</span>))}</>;
+}
+
+function EntryLine({ e, lang }: { e: Entry; lang: LetterLang }) {
   const date = /^\d{4}-\d{2}$/.test(e.date) ? monthLabel(e.date, lang) : e.date;
-  return date ? `${e.title[lang]} | ${date}` : e.title[lang];
+  return <><Linked spans={entrySpans(e, lang).title} />{date ? ` | ${date}` : ''}</>;
+}
+
+function EntryDetail({ e, lang }: { e: Entry; lang: LetterLang }) {
+  const detail = entrySpans(e, lang).detail;
+  return detail ? <Linked spans={detail} /> : null;
 }
 
 export interface CvLayout {
@@ -109,7 +121,13 @@ export const CvDocument = forwardRef<HTMLDivElement, {
         <div className="headline">{cv.headline}</div>
         <div className="contact">
           {base.identity.contact[L]}<br />
-          {[...base.identity.links, base.identity.languages[L]].filter(Boolean).join(' · ')}
+          {[
+            ...base.identity.links.map(l => {
+              const href = toHref(l);
+              return href ? <a href={href}>{l}</a> : <>{l}</>;
+            }),
+            base.identity.languages[L] || null,
+          ].filter(Boolean).map((x, i) => <span key={i}>{i > 0 ? ' · ' : ''}{x}</span>)}
         </div>
 
         <h2>{H[L].profile}</h2>
@@ -153,7 +171,7 @@ export const CvDocument = forwardRef<HTMLDivElement, {
           <h2>{H[L].edu}</h2>
           {base.education.map(e => (
             <div key={e.id} className="line">
-              <b>{entryLine(e, L)}</b>{e.detail ? <><br />{e.detail[L]}</> : null}
+              <b><EntryLine e={e} lang={L} /></b>{e.detail ? <><br /><EntryDetail e={e} lang={L} /></> : null}
             </div>
           ))}
         </>}
@@ -162,7 +180,7 @@ export const CvDocument = forwardRef<HTMLDivElement, {
           <h2>{H[L].cert}</h2>
           {base.certifications.map(e => (
             <div key={e.id} className="line">
-              {entryLine(e, L)}{e.detail ? ` (${e.detail[L]})` : ''}
+              <EntryLine e={e} lang={L} />{e.detail ? <> (<EntryDetail e={e} lang={L} />)</> : null}
             </div>
           ))}
         </>}
@@ -191,7 +209,13 @@ export const CvDocument = forwardRef<HTMLDivElement, {
 
         {base.projects.length > 0 && !layout.hideProjects && <>
           <h2>{H[L].projects}</h2>
-          <p>{base.projects.map(p => (p.detail ? `${p.title[L]} : ${p.detail[L]}` : p.title[L])).join(' · ')}</p>
+          <p>{base.projects.map((p, i) => (
+            <span key={p.id}>
+              {i > 0 ? ' · ' : ''}
+              <Linked spans={entrySpans(p, L).title} />
+              {p.detail ? <> : <EntryDetail e={p} lang={L} /></> : null}
+            </span>
+          ))}</p>
         </>}
       </div>
     </div>

@@ -1,3 +1,7 @@
+import { pdfLinks } from './links';
+
+const FILE_LINKS_HEADER = 'Liens du fichier :';
+
 const EXTRACT_PROMPT =
   'Extrais le texte complet de ce CV. Conserve la structure (sections, listes à puces). Texte brut uniquement, sans markdown ni commentaire.';
 
@@ -102,7 +106,12 @@ export async function extractCVFromFile(
     throw new Error('Format non supporté. Colle le texte manuellement.');
   }
 
-  return provider === 'anthropic'
-    ? extractWithAnthropic(file, apiKey, model)
-    : extractWithOpenAI(file, apiKey, model);
+  const text = provider === 'anthropic'
+    ? await extractWithAnthropic(file, apiKey, model)
+    : await extractWithOpenAI(file, apiKey, model);
+  if (!isPDF) return text;
+  // Les liens cachés sous un mot ne survivent pas à l'extraction du texte :
+  // on les ajoute en fin de texte, la structuration les range (voir factbase).
+  const links = pdfLinks(new Uint8Array(await file.arrayBuffer()));
+  return links.length ? `${text.trimEnd()}\n\n${FILE_LINKS_HEADER}\n${links.map(l => `- ${l}`).join('\n')}` : text;
 }
